@@ -1,0 +1,1472 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Due Next Tests</title>
+    <style>
+      body {
+        font: 16px/1.5 system-ui, sans-serif;
+        margin: 24px 16px;
+      }
+      .pass {
+        color: #2e7d32;
+      }
+      .fail {
+        color: #b3261e;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Due Next tests</h1>
+    <p id="summary">Running…</p>
+    <ul id="results"></ul>
+    <script type="module">
+      import {
+        STORAGE_KEY,
+        courseColorIndex,
+        describeDue,
+        describeReminder,
+        describeTimeLeft,
+        createTask,
+        groupTasks,
+        loadTasks,
+        nextUpTask,
+        parseTimeInput,
+        quickTimePicks,
+        createRepeatingTasks,
+        deleteFromSeries,
+        addTimerMinutes,
+        createTimer,
+        describeLeaves,
+        createGroup,
+        groupNameError,
+        loadGroups,
+        nextGroupColor,
+        saveGroups,
+        taskColorIndex,
+        describeReminderTimes,
+        importReminders,
+        formatDuration,
+        loadProgress,
+        recordCompletion,
+        recordFocus,
+        removeCompletion,
+        saveProgress,
+        streakInfo,
+        weekProgress,
+        formatMinutes,
+        parseFreeTime,
+        planDay,
+        tasksToPlan,
+        findTaskByWords,
+        suggestTasks,
+        understandMessage,
+        morningSummary,
+        formatTime,
+        pastTimeError,
+        cleanQuickTimes,
+        quickPickLabel,
+        timeChoices,
+        describeStart,
+        startByDate,
+        tasksToStart,
+        upcomingStarts,
+        findDatesInText,
+        formatCountdown,
+        pauseTimer,
+        resumeTimer,
+        timerMinutesDone,
+        timerRemaining,
+        guessCourse,
+        newCanvasEvents,
+        newTextEvents,
+        settleImportedCanvasTasks,
+        parseCanvasCalendar,
+        toDateKey,
+        toTimeKey,
+        repeatDates,
+        repeatError,
+        remindersBetween,
+        rescheduleError,
+        saveTasks,
+        addMonths,
+        monthGrid,
+        startOfWeek,
+        tasksDueOn,
+        timelineHours,
+        updateTask,
+        urgencyOf,
+        validateTask,
+        createEvent,
+        eventEntries,
+        EVENTS_KEY,
+        loadEvents,
+        saveEvents,
+        validateEvent,
+        passwordChangeError,
+        findDuplicateTask,
+        findDuplicateEvent,
+        semesterWeeks,
+        applyGoogleChanges,
+        changeGoogleEntry,
+        endsNextDay,
+        describeEventReminder,
+        eventReminderDue,
+        describeLeaveReminder,
+        needsTravelCheck,
+        timeToLeave,
+        travelModeOf,
+        weekDays,
+        SYNCED_KEYS,
+        syncedData,
+        signInError,
+        newLoginError,
+        profileError,
+        normalizeUsername,
+        mergeSyncedData,
+        googleEventDays,
+        googleEventsOn,
+        eventsNotInTasks,
+        eventColumns,
+        freeWindows,
+        describeFreeWindows,
+        authErrorMessage,
+      } from "./tasks.js";
+
+      const tests = [];
+      const test = (name, body) => tests.push({ name, body });
+      const assertEqual = (actual, expected) => {
+        const a = JSON.stringify(actual);
+        const e = JSON.stringify(expected);
+        if (a !== e) throw new Error(`expected ${e}, got ${a}`);
+      };
+
+      class MemoryStorage {
+        #data = new Map();
+        getItem(key) {
+          return this.#data.has(key) ? this.#data.get(key) : null;
+        }
+        setItem(key, value) {
+          this.#data.set(key, String(value));
+        }
+      }
+
+      const today = "2026-10-13";
+      const task = (name, due, done = false, time = "") => ({
+        id: name,
+        name,
+        course: "",
+        due,
+        time,
+        done,
+        reminders: [],
+        repeat: "none",
+        estimateMinutes: 0,
+        groupId: "",
+        customColor: null,
+      });
+
+      test("tasks are sorted into overdue, today, this week, later, and done", () => {
+        const groups = groupTasks(
+          [
+            task("later", "2026-11-01"),
+            task("week", "2026-10-20"),
+            task("today", "2026-10-13"),
+            task("overdue", "2026-10-10"),
+            task("finished", "2026-10-01", true),
+          ],
+          today,
+        );
+        assertEqual(groups.overdue.map((t) => t.name), ["overdue"]);
+        assertEqual(groups.today.map((t) => t.name), ["today"]);
+        assertEqual(groups.week.map((t) => t.name), ["week"]);
+        assertEqual(groups.later.map((t) => t.name), ["later"]);
+        assertEqual(groups.done.map((t) => t.name), ["finished"]);
+      });
+
+      test("tasks within a group are ordered by due date", () => {
+        const groups = groupTasks([task("b", "2026-10-18"), task("a", "2026-10-15")], today);
+        assertEqual(groups.week.map((t) => t.name), ["a", "b"]);
+      });
+
+      test("exactly seven days away counts as this week; eight is later", () => {
+        assertEqual(urgencyOf(task("x", "2026-10-20"), today), "week");
+        assertEqual(urgencyOf(task("x", "2026-10-21"), today), "later");
+      });
+
+      test("a blank name is rejected", () => {
+        assertEqual(validateTask({ name: "   ", due: today }), "Give the task a name.");
+      });
+
+      test("a missing due date is rejected", () => {
+        assertEqual(validateTask({ name: "MP2", due: "" }), "Pick a due date.");
+      });
+
+      test("a valid task passes validation and is trimmed", () => {
+        assertEqual(validateTask({ name: "MP2", due: today }), null);
+        const created = createTask({ name: "  MP2  ", course: " CS 124 ", due: today });
+        assertEqual([created.name, created.course, created.done], ["MP2", "CS 124", false]);
+      });
+
+      test("saved tasks come back after a reload", () => {
+        const storage = new MemoryStorage();
+        const saved = [task("MP2", today), task("Quiz", "2026-10-15", true)];
+        saveTasks(storage, saved);
+        assertEqual(loadTasks(storage), saved);
+      });
+
+      test("empty storage loads as no tasks", () => {
+        assertEqual(loadTasks(new MemoryStorage()), []);
+      });
+
+      test("malformed entries in storage are skipped", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(STORAGE_KEY, JSON.stringify([task("ok", today), { name: 5 }, null]));
+        assertEqual(loadTasks(storage).map((t) => t.name), ["ok"]);
+      });
+
+      test("an event needs a name, a date, and an end different from its start, unless it's all day", () => {
+        const event = { name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00" };
+        assertEqual(validateEvent(event), null);
+        assertEqual(validateEvent({ ...event, name: " " }), "Give the event a name.");
+        assertEqual(validateEvent({ ...event, end: "15:00" }), "Pick an end time different from the start time.");
+        assertEqual(validateEvent({ ...event, start: "", end: "" }), "Pick a start and an end time, or check All day.");
+        assertEqual(validateEvent({ ...event, start: "", end: "", allDay: true }), null);
+      });
+
+      test("events are drawn like calendar events, in their group's color, and survive a reload", () => {
+        const groups = [{ id: "school", name: "School", color: 0 }];
+        const event = createEvent({ name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00", groupId: "school" });
+        const storage = new MemoryStorage();
+        saveEvents(storage, [event]);
+        const [entry] = eventEntries(loadEvents(storage), groups);
+        assertEqual([entry.eventId, entry.date, entry.start, entry.end, entry.colorIndex], [event.id, "2026-11-10", "15:00", "17:00", 0]);
+      });
+
+      test("an event that ends earlier than it starts runs into the next day, drawn on both days", () => {
+        const party = createEvent({ name: "Party", date: "2026-11-13", start: "23:30", end: "00:30" });
+        assertEqual(validateEvent(party), null);
+        assertEqual(endsNextDay(party), true);
+        assertEqual(
+          eventEntries([party], []).map((entry) => [entry.date, entry.start, entry.end]),
+          [["2026-11-13", "23:30", "23:59"], ["2026-11-14", "00:00", "00:30"]],
+        );
+      });
+
+      test("an event reminds you at the Settings default unless it has its own choice", () => {
+        const event = createEvent({ name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00" });
+        const at = (time) => new Date(`2026-11-10T${time}:00`).getTime();
+        // Default 30 min: the 2:30 PM check fires, a check that already passed 2:30 doesn't.
+        assertEqual(eventReminderDue(event, "30", at("14:29"), at("14:30")), true);
+        assertEqual(eventReminderDue(event, "30", at("14:30"), at("14:31")), false);
+        assertEqual(eventReminderDue({ ...event, reminder: "10" }, "30", at("14:49"), at("14:50")), true);
+        assertEqual(eventReminderDue({ ...event, reminder: "none" }, "30", at("14:29"), at("14:30")), false);
+        assertEqual(eventReminderDue(event, "none", at("14:29"), at("14:30")), false);
+        // All-day events count back from 9 AM.
+        const allDay = { ...event, start: "", end: "" };
+        assertEqual(eventReminderDue(allDay, "0", at("08:59"), at("09:00")), true);
+      });
+
+      test("an event reminder says when it starts", () => {
+        const event = createEvent({ name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00" });
+        assertEqual(describeEventReminder(event, new Date("2026-11-10T14:30:00")), "Starts in 30 min, at 3:00 PM");
+        assertEqual(describeEventReminder(event, new Date("2026-11-10T15:00:00")), "Starts now, until 5:00 PM");
+        assertEqual(describeEventReminder(event, new Date("2026-11-10T13:00:00")), "Starts in 2 hours, at 3:00 PM");
+        assertEqual(describeEventReminder({ ...event, start: "", end: "" }, new Date("2026-11-09T09:00:00")), "Tomorrow, all day");
+      });
+
+      test("with a 12 min walk, Leave now comes 17 minutes before the event and lasts until it starts", () => {
+        const place = { lat: 40.114, lon: -88.224, name: "Siebel Center" };
+        const event = createEvent({ name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00", location: "Siebel", place });
+        const at = (time) => new Date(`2026-11-10T${time}:00`).getTime();
+        assertEqual([timeToLeave(event, 12, at("14:42")), timeToLeave(event, 12, at("14:43")), timeToLeave(event, 12, at("15:00"))], [false, true, false]);
+        const mode = travelModeOf(event, "walk");
+        assertEqual(describeLeaveReminder(event, 12, mode), "12 min walk to Siebel Center, starts at 3:00 PM");
+        assertEqual(travelModeOf({ ...event, travelMode: "drive" }, "walk").id, "drive");
+      });
+
+      test("trip times are only checked for timed events with a place, starting within 2 hours", () => {
+        const place = { lat: 40.114, lon: -88.224, name: "Siebel Center" };
+        const event = createEvent({ name: "Study group", date: "2026-11-10", start: "15:00", end: "17:00", location: "Siebel", place });
+        const at = (time) => new Date(`2026-11-10T${time}:00`).getTime();
+        assertEqual([needsTravelCheck(event, at("12:59")), needsTravelCheck(event, at("13:00")), needsTravelCheck(event, at("15:00"))], [false, true, false]);
+        assertEqual(needsTravelCheck({ ...event, place: null }, at("14:00")), false);
+        // Clearing the location drops the place, so an old place can't be used.
+        assertEqual(createEvent({ name: "x", date: "2026-11-10", start: "15:00", end: "16:00", location: " ", place }).place, null);
+      });
+
+      test("moving or hiding a Google event changes only Due Next's copy, one day at a time", () => {
+        const monday = { id: "class_1:2026-11-09", name: "ECON 103", date: "2026-11-09", start: "09:00", end: "09:50" };
+        const wednesday = { ...monday, id: "class_2:2026-11-11", date: "2026-11-11" };
+        let changes = changeGoogleEntry({}, monday, { date: "2026-11-09", start: "10:00", end: "10:50" });
+        changes = changeGoogleEntry(changes, wednesday, { hidden: true });
+        const shown = applyGoogleChanges([monday, wednesday], changes);
+        assertEqual(shown.map((entry) => [entry.date, entry.start, entry.original?.start]), [["2026-11-09", "10:00", "09:00"]]);
+        // Dragging it back to Google's own time forgets the change.
+        assertEqual(changeGoogleEntry(changes, shown[0], { date: "2026-11-09", start: "09:00", end: "09:50" })[monday.id], undefined);
+        assertEqual(Object.keys(changeGoogleEntry(changes, wednesday, null)), [monday.id]);
+      });
+
+      test("the semester overview rates each week, counting exams and projects extra (not quizzes), and marks the busiest", () => {
+        const due = (name, date, extra = {}) => ({ ...task(name, date), ...extra });
+        const tasks = [
+          due("HW 9", "2026-11-17"),
+          due("Exam 3", "2026-12-02"),
+          due("Final Project", "2026-12-03", { estimateMinutes: 240 }),
+          due("Essay draft", "2026-12-04"),
+          due("Quiz 11", "2026-12-04"),
+          task("Old done thing", "2026-12-03", true),
+        ];
+        const weeks = semesterWeeks(tasks, "2026-11-15");
+        assertEqual(weeks.length, 6);
+        assertEqual([weeks[0].start, weeks[0].level], ["2026-11-15", "light"]);
+        const crunch = weeks.find((week) => week.start === "2026-11-29");
+        assertEqual(
+          [crunch.exams.map((t) => t.name), crunch.projects.map((t) => t.name), crunch.assignments.length, crunch.minutes, crunch.level, crunch.busiest],
+          [["Exam 3"], ["Final Project", "Essay draft"], 1, 240, "very-busy", true],
+        );
+        assertEqual(weeks.filter((week) => week.busiest).length, 1);
+        assertEqual(weeks[1].level, "free");
+        // Thursday has the Final Project with 4 hours estimated, the most of any day that week.
+        assertEqual([crunch.days.length, crunch.heaviest.date, crunch.heaviest.tasks.map((t) => t.name)], [7, "2026-12-03", ["Final Project"]]);
+        // A single ordinary assignment doesn't make a heaviest day.
+        assertEqual(weeks[0].heaviest, null);
+      });
+
+      test("the workload setting moves where busy starts", () => {
+        const tasks = [
+          { ...task("Project slides", "2026-12-07") },
+          { ...task("Project infographic", "2026-12-08") },
+          ...["A", "B", "C", "D", "E"].map((name) => task(name, "2026-12-09")),
+        ];
+        const levelOn = (workload) => semesterWeeks(tasks, "2026-11-15", { workload }).find((week) => week.start === "2026-12-06").level;
+        assertEqual([levelOn("less"), levelOn("normal"), levelOn("more")], ["very-busy", "busy", "steady"]);
+      });
+
+      test("adding the same task or event twice is noticed, even with different capitals, spaces, or a Canvas tag", () => {
+        const exam = { ...task("Exam 3 [math_220_120268]", "2026-12-03"), course: "MATH 220" };
+        assertEqual(findDuplicateTask([exam], { name: "exam  3", due: "2026-12-03" }), exam);
+        assertEqual(findDuplicateTask([exam], { name: "Exam 3", due: "2026-12-04" }), null);
+        assertEqual(findDuplicateTask([exam], { name: "Exam 4", due: "2026-12-03" }), null);
+        const club = createEvent({ name: "Club meeting", date: "2026-11-18", start: "18:00", end: "19:00" });
+        assertEqual(findDuplicateEvent([club], { name: "club meeting", date: "2026-11-18" }), club);
+        assertEqual(findDuplicateEvent([club], { name: "Club meeting", date: "2026-11-25" }), null);
+      });
+
+      test("changing a password needs the current one and a new one typed the same twice", () => {
+        const change = { current: "oldpass1", next: "newpass1", again: "newpass1" };
+        assertEqual(passwordChangeError(change), "");
+        assertEqual(passwordChangeError({ ...change, current: "" }), "Type your current password.");
+        assertEqual(passwordChangeError({ ...change, next: "abc", again: "abc" }), "Use at least 6 characters for your new password.");
+        assertEqual(passwordChangeError({ ...change, again: "newpass2" }), "The new passwords don't match.");
+        assertEqual(passwordChangeError({ ...change, next: "oldpass1", again: "oldpass1" }), "That's the same as your current password. Pick a new one.");
+      });
+
+      test("a week starts on Sunday, even when today is Saturday", () => {
+        assertEqual(startOfWeek("2026-10-21"), "2026-10-18");
+        assertEqual(startOfWeek("2026-10-18"), "2026-10-18");
+        assertEqual(startOfWeek("2026-10-24"), "2026-10-18");
+      });
+
+      test("a week has seven days and can cross into the next month", () => {
+        assertEqual(weekDays("2026-10-26"), [
+          "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01",
+        ]);
+      });
+
+      test("a day shows only its own tasks, unfinished first", () => {
+        const tasks = [
+          task("Essay", "2026-10-22", true),
+          task("Quiz", "2026-10-22"),
+          task("MP3", "2026-10-23"),
+        ];
+        assertEqual(tasksDueOn(tasks, "2026-10-22").map((t) => t.name), ["Quiz", "Essay"]);
+      });
+
+      test("the same class always gets the same color, ignoring case and spaces", () => {
+        assertEqual(courseColorIndex("CS 124"), courseColorIndex(" cs 124 "));
+        assertEqual(courseColorIndex(""), -1);
+      });
+
+      test("a day's tasks are ordered by time, with untimed tasks last", () => {
+        const tasks = [
+          task("Anytime", "2026-10-22"),
+          task("Late", "2026-10-22", false, "23:59"),
+          task("Morning", "2026-10-22", false, "09:00"),
+        ];
+        assertEqual(tasksDueOn(tasks, "2026-10-22").map((t) => t.name), ["Morning", "Late", "Anytime"]);
+      });
+
+      test("a task due today becomes overdue once its time passes", () => {
+        const quiz = task("Quiz", today, false, "09:00");
+        assertEqual(urgencyOf(quiz, today, "08:59"), "today");
+        assertEqual(urgencyOf(quiz, today, "09:01"), "overdue");
+        assertEqual(urgencyOf(task("Anytime", today), today, "23:00"), "today");
+      });
+
+      test("an impossible time is rejected, and no time is fine", () => {
+        assertEqual(validateTask({ name: "MP2", due: today, time: "25:00" }), "That time isn't valid.");
+        assertEqual(validateTask({ name: "MP2", due: today, time: "" }), null);
+      });
+
+      test("tasks saved before due times existed still load, with no time", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(STORAGE_KEY, JSON.stringify([{ id: "a", name: "Old", course: "", due: today, done: false }]));
+        assertEqual(loadTasks(storage)[0].time, "");
+      });
+
+      test("the due description includes the time when there is one", () => {
+        const described = describeDue(task("Quiz", today, false, "23:59"), today);
+        if (!described.startsWith("today at ") || !described.includes("59")) {
+          throw new Error(`unexpected description: ${described}`);
+        }
+      });
+
+      const picksAt = (hours, minutes, dueKey = today) =>
+        quickTimePicks(dueKey, new Date(2026, 9, 13, hours, minutes)).map((p) => `${p.label} ${p.due} ${p.time}`);
+
+      test("quick picks in the morning offer later times today", () => {
+        assertEqual(picksAt(9, 0), [
+          "In 1 hour 2026-10-13 10:00",
+          "Noon 2026-10-13 12:00",
+          "5 PM 2026-10-13 17:00",
+          "Tonight 11:59 PM 2026-10-13 23:59",
+          "No time 2026-10-13 ",
+        ]);
+      });
+
+      test("quick picks in the afternoon skip noon and offer tomorrow morning", () => {
+        assertEqual(picksAt(14, 15), [
+          "In 1 hour 2026-10-13 15:15",
+          "5 PM 2026-10-13 17:00",
+          "Tonight 11:59 PM 2026-10-13 23:59",
+          "Tomorrow 9 AM 2026-10-14 09:00",
+          "No time 2026-10-13 ",
+        ]);
+      });
+
+      test("quick picks late at night only offer tomorrow", () => {
+        assertEqual(picksAt(23, 30), [
+          "Tomorrow 9 AM 2026-10-14 09:00",
+          "Tomorrow 11:59 PM 2026-10-14 23:59",
+          "No time 2026-10-13 ",
+        ]);
+      });
+
+      test("quick picks for another day are fixed times on that day", () => {
+        assertEqual(picksAt(14, 15, "2026-10-15"), [
+          "9 AM 2026-10-15 09:00",
+          "Noon 2026-10-15 12:00",
+          "5 PM 2026-10-15 17:00",
+          "11:59 PM 2026-10-15 23:59",
+          "No time 2026-10-15 ",
+        ]);
+      });
+
+      test("the day timeline runs 7 AM to 11 PM, starting earlier for an early task", () => {
+        const hours = timelineHours([task("Anytime", today)]);
+        assertEqual([hours[0], hours.at(-1), hours.length], [7, 23, 17]);
+        assertEqual(timelineHours([task("Early", today, false, "05:30")])[0], 5);
+      });
+
+      test("coming up next skips finished tasks and times already passed today", () => {
+        const dayTasks = tasksDueOn(
+          [
+            task("Passed", today, false, "08:00"),
+            task("Finished", today, true, "10:00"),
+            task("Next", today, false, "13:00"),
+            task("Anytime", today),
+          ],
+          today,
+        );
+        assertEqual(nextUpTask(dayTasks, "09:00").name, "Next");
+        assertEqual(nextUpTask(dayTasks, null).name, "Passed");
+        assertEqual(nextUpTask([task("Done", today, true)], null), null);
+      });
+
+      test("time left reads naturally", () => {
+        assertEqual(describeTimeLeft("23:59", "18:09"), "5h 50m left");
+        assertEqual(describeTimeLeft("18:45", "18:00"), "45m left");
+        assertEqual(describeTimeLeft("20:00", "18:00"), "2h left");
+        assertEqual(describeTimeLeft("18:00", "18:00"), "due now");
+      });
+
+      test("a missed task can be moved later today or to another day, but not into the past", () => {
+        const now = new Date(2026, 9, 13, 14, 0);
+        assertEqual(rescheduleError("2026-10-13", "23:59", now), null);
+        assertEqual(rescheduleError("2026-10-14", "09:00", now), null);
+        assertEqual(rescheduleError("2026-10-13", "", now), null);
+        assertEqual(rescheduleError("2026-10-13", "09:00", now), "Pick a time that hasn't passed yet.");
+        assertEqual(rescheduleError("2026-10-12", "", now), "Pick a time that hasn't passed yet.");
+        assertEqual(rescheduleError("", "", now), "Pick a new date.");
+      });
+
+      test("typed times are understood in the usual ways", () => {
+        const times = ["11:59 PM", "11:59pm", "9am", "9:30 a", "930am", "12 AM", "12:00 p.m.", "noon", "21:30", ""];
+        assertEqual(times.map((text) => parseTimeInput(text).time), [
+          "23:59", "23:59", "09:00", "09:30", "09:30", "00:00", "12:00", "12:00", "21:30", "",
+        ]);
+      });
+
+      test("a typed time without AM or PM is not guessed", () => {
+        assertEqual(parseTimeInput("8:00"), { error: "Add AM or PM, like 8:00 AM." });
+        assertEqual(parseTimeInput("8"), { error: "Add AM or PM, like 8:00 AM." });
+      });
+
+      test("nonsense times are rejected", () => {
+        for (const text of ["25:00", "13pm", "9:75 am", "soon"]) {
+          assertEqual(parseTimeInput(text), { error: "Type a time like 11:59 PM." });
+        }
+      });
+
+      // A task due Wed Oct 28, 2026 at 9:00 PM, for the reminder tests.
+      const at = (text) => new Date(text).getTime();
+      const reminderTask = (fields) => ({ name: "MP", course: "", due: "2026-10-28", time: "21:00", done: false, reminders: [], repeat: "none", ...fields });
+
+      test("checked reminder times go off that long before the due time", () => {
+        const task = reminderTask({ reminders: [24 * 60, 15] });
+        assertEqual(remindersBetween(task, at("2026-10-27T00:00"), at("2026-10-29T00:00")), [
+          at("2026-10-27T21:00"),
+          at("2026-10-28T20:45"),
+        ]);
+        // Only reminders inside the window count, so each one goes off once.
+        assertEqual(remindersBetween(task, at("2026-10-28T20:40"), at("2026-10-28T20:45")), [at("2026-10-28T20:45")]);
+        assertEqual(remindersBetween(task, at("2026-10-28T20:45"), at("2026-10-28T20:50")), []);
+      });
+
+      test("a daily repeat reminds at 9 AM each day until the task is due", () => {
+        const task = reminderTask({ repeat: "daily" });
+        assertEqual(remindersBetween(task, at("2026-10-26T12:00"), at("2026-10-30T00:00")), [
+          at("2026-10-27T09:00"),
+          at("2026-10-28T09:00"),
+        ]);
+      });
+
+      test("an every-3-hours repeat reminds only on the day it's due", () => {
+        const task = reminderTask({ repeat: "every3h" });
+        assertEqual(remindersBetween(task, at("2026-10-27T00:00"), at("2026-10-29T00:00")), [
+          at("2026-10-28T00:00"),
+          at("2026-10-28T03:00"),
+          at("2026-10-28T06:00"),
+          at("2026-10-28T09:00"),
+          at("2026-10-28T12:00"),
+          at("2026-10-28T15:00"),
+          at("2026-10-28T18:00"),
+        ]);
+      });
+
+      test("finished tasks and tasks without reminders never remind", () => {
+        const range = [at("2026-10-20T00:00"), at("2026-10-29T00:00")];
+        assertEqual(remindersBetween(reminderTask({ reminders: [60], done: true }), ...range), []);
+        assertEqual(remindersBetween(reminderTask({}), ...range), []);
+      });
+
+      test("a task with no time is reminded relative to 11:59 PM", () => {
+        const task = reminderTask({ time: "", reminders: [60] });
+        assertEqual(remindersBetween(task, at("2026-10-28T00:00"), at("2026-10-29T00:00")), [at("2026-10-28T22:59")]);
+      });
+
+      test("reminders say how long is left", () => {
+        assertEqual(describeReminder(reminderTask({}), new Date("2026-10-28T20:45")), "Due in 15 min");
+        assertEqual(describeReminder(reminderTask({}), new Date("2026-10-28T18:00")), "Due in 3 hours, at 9:00 PM");
+      });
+
+      test("old saved tasks load with no reminders, and unknown choices are dropped", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(STORAGE_KEY, JSON.stringify([
+          { id: "a", name: "Old", course: "", due: "2026-10-28", done: false },
+          { id: "b", name: "Odd", course: "", due: "2026-10-28", time: "", done: false, reminders: [60, 7], repeat: "often" },
+        ]));
+        const [old, odd] = loadTasks(storage);
+        assertEqual([old.reminders, old.repeat], [[], "none"]);
+        assertEqual([odd.reminders, odd.repeat], [[60], "none"]);
+      });
+
+      test("changing a task replaces its details and reminders but keeps it the same task", () => {
+        const original = { ...task("Essay", "2026-10-28"), done: true, reminders: [60] };
+        const changed = updateTask(original, {
+          name: " Essay draft ",
+          course: "RHET 105",
+          due: "2026-10-30",
+          time: "17:00",
+          reminders: [24 * 60, 30],
+          repeat: "daily",
+        });
+        assertEqual(changed, {
+          id: "Essay",
+          name: "Essay draft",
+          course: "RHET 105",
+          due: "2026-10-30",
+          time: "17:00",
+          done: true,
+          reminders: [24 * 60, 30],
+          repeat: "daily",
+          estimateMinutes: 0,
+          groupId: "",
+          customColor: null,
+        });
+      });
+
+      test("changing an imported task keeps it linked to Canvas, so importing again won't duplicate it", () => {
+        const imported = { ...task("HW6", "2026-11-09"), canvasId: "event-1", importedOn: "2026-10-31" };
+        const changed = updateTask(imported, { name: "HW 6", course: "MATH 220", due: "2026-11-09", time: "" });
+        assertEqual([changed.canvasId, changed.importedOn], ["event-1", "2026-10-31"]);
+      });
+
+      test("a month grid is whole Sunday-to-Saturday weeks covering the month", () => {
+        const october = monthGrid("2026-10-15");
+        assertEqual([october.length, october[0], october.at(-1)], [35, "2026-09-27", "2026-10-31"]);
+        // August 2026 starts on a Saturday and needs six weeks.
+        const august = monthGrid("2026-08-20");
+        assertEqual([august.length, august[0], august.at(-1)], [42, "2026-07-26", "2026-09-05"]);
+      });
+
+      test("moving by months lands on the 1st, even from the 31st", () => {
+        assertEqual([addMonths("2026-10-31", 1), addMonths("2026-01-31", 1), addMonths("2026-01-15", -1)], [
+          "2026-11-01",
+          "2026-02-01",
+          "2025-12-01",
+        ]);
+      });
+
+      test("weekly repeats land on the chosen weekdays until the end date", () => {
+        // Fri Oct 30, 2026, weekly until Nov 20: every Friday.
+        assertEqual(repeatDates("2026-10-30", { repeats: "weekly", weekdays: [5], until: "2026-11-20" }), [
+          "2026-10-30",
+          "2026-11-06",
+          "2026-11-13",
+          "2026-11-20",
+        ]);
+        // Tuesdays and Thursdays starting on a Wednesday skip that first Tuesday.
+        assertEqual(repeatDates("2026-10-28", { repeats: "weekly", weekdays: [2, 4], until: "2026-11-05" }), [
+          "2026-10-29",
+          "2026-11-03",
+          "2026-11-05",
+        ]);
+      });
+
+      test("every 2 weeks skips the week in between", () => {
+        assertEqual(repeatDates("2026-10-30", { repeats: "biweekly", weekdays: [5], until: "2026-11-30" }), [
+          "2026-10-30",
+          "2026-11-13",
+          "2026-11-27",
+        ]);
+      });
+
+      test("daily and monthly repeats, with monthly skipping months that are too short", () => {
+        assertEqual(repeatDates("2026-10-30", { repeats: "daily", until: "2026-11-01" }), [
+          "2026-10-30",
+          "2026-10-31",
+          "2026-11-01",
+        ]);
+        assertEqual(repeatDates("2026-10-31", { repeats: "monthly", until: "2027-01-31" }), ["2026-10-31", "2026-12-31", "2027-01-31"]);
+      });
+
+      test("without an end date a repeat goes a year ahead", () => {
+        const dates = repeatDates("2026-10-30", { repeats: "weekly", weekdays: [5] });
+        assertEqual([dates.length, dates.at(-1)], [53, "2027-10-29"]);
+      });
+
+      test("impossible repeats are explained instead of added", () => {
+        assertEqual(repeatError("2026-10-30", { repeats: "weekly", weekdays: [] }), "Pick at least one day to repeat on.");
+        assertEqual(repeatError("2026-10-30", { repeats: "daily", until: "2026-10-01" }), "The end date has to be on or after the due date.");
+        assertEqual(repeatError("2026-10-28", { repeats: "weekly", weekdays: [5], until: "2026-10-29" }), "None of those days come before the end date.");
+        assertEqual(repeatError("2026-10-30", { repeats: "none" }), null);
+      });
+
+      test("each repeat is its own task, linked to the others", () => {
+        const copies = createRepeatingTasks(
+          { name: "Weekly quiz", course: "", due: "2026-10-30", time: "09:00" },
+          { repeats: "weekly", weekdays: [5], until: "2026-11-13" },
+        );
+        assertEqual(copies.map((copy) => copy.due), ["2026-10-30", "2026-11-06", "2026-11-13"]);
+        assertEqual(new Set(copies.map((copy) => copy.id)).size, 3);
+        assertEqual(new Set(copies.map((copy) => copy.seriesId)).size, 1);
+        // Changing one copy keeps it part of the repeat.
+        assertEqual(updateTask(copies[1], { name: "Quiz 5", course: "", due: "2026-11-07", time: "" }).seriesId, copies[1].seriesId);
+      });
+
+      test("deleting one copy of a repeating task keeps the rest", () => {
+        const fridays = createRepeatingTasks(
+          { name: "Weekly quiz", course: "", due: "2026-10-30", time: "" },
+          { repeats: "weekly", weekdays: [5], until: "2026-11-20" },
+        );
+        const other = task("Essay", "2026-11-13");
+        const all = [...fridays, other];
+        const dues = (list) => list.map((item) => item.due);
+        assertEqual(dues(deleteFromSeries(all, fridays[1], "one")), ["2026-10-30", "2026-11-13", "2026-11-20", "2026-11-13"]);
+        assertEqual(dues(deleteFromSeries(all, fridays[1], "following")), ["2026-10-30", "2026-11-13"]);
+        assertEqual(deleteFromSeries(all, fridays[1], "all"), [other]);
+      });
+
+      // A small Canvas calendar feed in the same shape as a real one (CRLF lines, one folded line).
+      const canvasFeed = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "BEGIN:VEVENT",
+        "UID:event-assignment-1",
+        "DTSTART;VALUE=DATE;VALUE=DATE:20261012",
+        "SUMMARY:HW6 [math_220_120268_262973]",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:event-assignment-2",
+        "DTSTART:20261008T160000Z",
+        "SUMMARY:Library Workshop\\, Week 7 [FA26 LA",
+        " S 101]",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:event-calendar-3",
+        "DTSTART;VALUE=DATE;VALUE=DATE:20261005",
+        "SUMMARY:ACE IT workshop due [vcstud_cc_open_249979]",
+        "END:VEVENT",
+        "END:VCALENDAR",
+      ].join("\r\n");
+
+      test("a Canvas calendar feed becomes tasks with class names and local times", () => {
+        const utcMoment = new Date(Date.UTC(2026, 9, 8, 16, 0));
+        assertEqual(parseCanvasCalendar(canvasFeed), [
+          { canvasId: "event-assignment-1", name: "HW6", course: "MATH 220", due: "2026-10-12", time: "" },
+          {
+            canvasId: "event-assignment-2",
+            name: "Library Workshop, Week 7",
+            course: "LAS 101",
+            due: toDateKey(utcMoment),
+            time: toTimeKey(utcMoment),
+          },
+          { canvasId: "event-calendar-3", name: "ACE IT workshop due", course: "", due: "2026-10-05", time: "" },
+        ]);
+      });
+
+      test("a file that isn't a calendar is rejected", () => {
+        assertEqual(parseCanvasCalendar("Name,Due\nHW6,10/12"), null);
+      });
+
+      test("importing the same Canvas file twice adds nothing twice", () => {
+        const events = parseCanvasCalendar(canvasFeed);
+        const alreadyImported = [{ ...task("HW6", "2026-10-12"), canvasId: "event-assignment-1" }];
+        assertEqual(newCanvasEvents(events, alreadyImported).map((event) => event.canvasId), [
+          "event-assignment-2",
+          "event-calendar-3",
+        ]);
+      });
+
+      test("Canvas work already past when imported is checked off; later misses still count", () => {
+        const now = new Date("2026-10-31T15:00");
+        const imported = [
+          { ...task("Old HW", "2026-10-20"), canvasId: "a" },
+          { ...task("Due this morning", "2026-10-31", false, "09:00"), canvasId: "b" },
+          { ...task("Next week", "2026-11-06"), canvasId: "c" },
+          task("My own missed task", "2026-10-20"),
+        ];
+        assertEqual(settleImportedCanvasTasks(imported, now), 3);
+        assertEqual(imported.map((item) => item.done), [true, true, false, false]);
+        // Once settled, a Canvas task that later goes overdue is left alone, so it shows as missed.
+        assertEqual(settleImportedCanvasTasks(imported, new Date("2026-11-08T12:00")), 0);
+        assertEqual(imported[2].done, false);
+      });
+
+      test("a syllabus exam table flattened by the PDF pairs each exam with its date", () => {
+        const syllabus = [
+          "Math 220 Calculus",
+          "Fall 2026 Syllabus",
+          "Exam 1: Exam 2: Exam 3: Thursday, September 24 Thursday, October 29 Thursday, December 3 6.00− 7 : 15 PM",
+          "93 - 97.99 A",
+          "You can earn an additional 3% extra credit for questions completed at least 24 hours before the due date.",
+        ].join("\n");
+        assertEqual(guessCourse(syllabus), "MATH 220");
+        assertEqual(findDatesInText(syllabus), [
+          { name: "Exam 1", due: "2026-09-24", time: "" },
+          { name: "Exam 2", due: "2026-10-29", time: "" },
+          { name: "Exam 3", due: "2026-12-03", time: "" },
+        ]);
+      });
+
+      test("schedule lines in common formats become named tasks", () => {
+        const schedule = [
+          "Fall 2026 schedule",
+          "Sep 15 – Homework 1 due at 11:59 pm",
+          "Thu 10/1: Quiz 2",
+          "October 7, 2026 | Project proposal",
+          "Week 9",
+          "Nov 3",
+        ].join("\n");
+        assertEqual(findDatesInText(schedule), [
+          { name: "Homework 1 due", due: "2026-09-15", time: "23:59" },
+          { name: "Quiz 2", due: "2026-10-01", time: "" },
+          { name: "Project proposal", due: "2026-10-07", time: "" },
+          { name: "Week 9", due: "2026-11-03", time: "" },
+        ]);
+      });
+
+      test("text with no dates finds nothing, and importing found dates twice adds nothing twice", () => {
+        assertEqual(findDatesInText("Grades: 93 - 97.99 A\nOffice hours in Canvas"), []);
+        const found = findDatesInText("Fall 2026\nOct 29 Exam 2");
+        assertEqual(newTextEvents(found, [task("exam 2", "2026-10-29")]), []);
+      });
+
+      test("the focus timer counts down from the clock and shows minutes and seconds", () => {
+        const timer = createTimer(25, 1000);
+        assertEqual(formatCountdown(timerRemaining(timer, 1000)), "25:00");
+        assertEqual(formatCountdown(timerRemaining(timer, 1000 + 1500)), "24:59");
+        assertEqual(formatCountdown(timerRemaining(timer, 1000 + 25 * 60_000)), "0:00");
+        assertEqual(timerRemaining(timer, 1000 + 99 * 60_000), 0);
+      });
+
+      test("pausing stops the clock, and paused time doesn't count as focused", () => {
+        const started = createTimer(25, 0);
+        const paused = pauseTimer(started, 5 * 60_000);
+        assertEqual(timerRemaining(paused, 60 * 60_000), 20 * 60_000);
+        const resumed = resumeTimer(paused, 60 * 60_000);
+        assertEqual(timerRemaining(resumed, 61 * 60_000), 19 * 60_000);
+        assertEqual(timerMinutesDone(resumed, 61 * 60_000), 6);
+      });
+
+      test("adding 10 more minutes continues from what's left", () => {
+        const finished = createTimer(25, 0);
+        const extended = addTimerMinutes(finished, 10, 25 * 60_000);
+        assertEqual(formatCountdown(timerRemaining(extended, 25 * 60_000)), "10:00");
+        assertEqual(timerMinutesDone(extended, 30 * 60_000), 30);
+      });
+
+      test("the focus summary describes how often you left", () => {
+        assertEqual(describeLeaves(0), "You stayed on this page the whole time ✨");
+        assertEqual(describeLeaves(1), "You left this page 1 time.");
+        assertEqual(describeLeaves(3), "You left this page 3 times.");
+      });
+
+      // Fri Nov 6, 2026 is the due date in these; Mon Nov 2 is "today".
+      const estimated = (minutes, fields = {}) => ({ ...task("Project", "2026-11-06"), estimateMinutes: minutes, ...fields });
+
+      test("start by works back at 2 hours a day, finishing a day early", () => {
+        assertEqual(startByDate(estimated(300)), "2026-11-03"); // 5 hours: 3 work days, so Tuesday
+        assertEqual(startByDate(estimated(30)), "2026-11-05"); // 30 min: the day before
+        assertEqual(startByDate(estimated(120)), "2026-11-05"); // exactly 2 hours is still one day
+        assertEqual(startByDate(estimated(480)), "2026-11-02"); // 8 hours: 4 work days
+        assertEqual(startByDate(estimated(0)), "");
+      });
+
+      test("the start label changes as the day gets closer", () => {
+        const project = estimated(300);
+        assertEqual(describeStart(project, "2026-11-02"), "Start by Tue");
+        assertEqual(describeStart(project, "2026-11-03"), "Start today");
+        assertEqual(describeStart(project, "2026-11-04"), "Start now!");
+        assertEqual(describeStart(estimated(300, { done: true }), "2026-11-03"), "");
+        assertEqual(describeStart(project, "2026-11-07"), "");
+        assertEqual(describeStart(estimated(0), "2026-11-03"), "");
+      });
+
+      test("the Start by list shows tasks whose day to begin is still ahead, soonest first", () => {
+        const all = [
+          estimated(30, { name: "Starts Thu" }),
+          estimated(300, { name: "Starts Tue" }),
+          estimated(480, { name: "Starts today" }),
+          estimated(0, { name: "No estimate" }),
+          estimated(300, { name: "Finished", done: true }),
+        ];
+        assertEqual(upcomingStarts(all, "2026-11-02").map((item) => item.name), ["Starts Tue", "Starts Thu"]);
+      });
+
+      test("a task joins the Today list once its day to begin arrives", () => {
+        const names = (list) => list.map((item) => item.name);
+        const all = [
+          estimated(300, { name: "Starts Tue" }),
+          estimated(480, { name: "Starts Mon" }),
+          estimated(0, { name: "No estimate" }),
+          estimated(480, { name: "Finished", done: true }),
+          { ...estimated(60, { name: "Due Tue" }), due: "2026-11-03" },
+        ];
+        // The same start day goes soonest due first; on its due day a task is in "due today" instead.
+        assertEqual(names(tasksToStart(all, "2026-11-02")), ["Due Tue", "Starts Mon"]);
+        assertEqual(names(tasksToStart(all, "2026-11-03")), ["Starts Mon", "Starts Tue"]);
+      });
+
+      test("a task's group sets its color, and without one it uses its class color", () => {
+        const groups = [{ id: "work", name: "Work", color: 4 }];
+        const classTask = { ...task("Essay", "2026-11-06"), course: "CS 124" };
+        assertEqual(taskColorIndex({ ...classTask, groupId: "work" }, groups), 4);
+        assertEqual(taskColorIndex(classTask, groups), courseColorIndex("CS 124"));
+        assertEqual(taskColorIndex(task("Plain", "2026-11-06"), groups), -1);
+        // A group that was deleted just falls back to the class color.
+        assertEqual(taskColorIndex({ ...classTask, groupId: "gone" }, groups), courseColorIndex("CS 124"));
+      });
+
+      test("a color chosen for one task beats its group and class colors", () => {
+        const groups = [{ id: "school", name: "School", color: 0 }];
+        const exam = { ...task("Exam 3", "2026-12-03"), course: "MATH 220", groupId: "school", customColor: 4 };
+        assertEqual(taskColorIndex(exam, groups), 4);
+        assertEqual(taskColorIndex({ ...exam, customColor: null }, groups), 0);
+        assertEqual(taskColorIndex({ ...exam, customColor: 0 }, []), 0);
+      });
+
+      test("new groups need a unique name and start with an unused color", () => {
+        const groups = [{ id: "a", name: "School", color: 0 }, { id: "b", name: "Work", color: 1 }];
+        assertEqual(groupNameError("  ", groups), "Give the group a name.");
+        assertEqual(groupNameError("school", groups), "You already have a group with that name.");
+        assertEqual(groupNameError("Club", groups), null);
+        assertEqual(nextGroupColor(groups), 2);
+        assertEqual(createGroup(" Club ", 3).name, "Club");
+      });
+
+      test("everyone starts with starter groups, and saved groups come back", () => {
+        const storage = new MemoryStorage();
+        assertEqual(loadGroups(storage).map((group) => group.name), ["School", "Work", "Personal"]);
+        saveGroups(storage, [{ id: "c", name: "Club", color: 2 }, { id: "bad", name: "Bad", color: 99 }]);
+        assertEqual(loadGroups(storage), [{ id: "c", name: "Club", color: 2 }]);
+        saveGroups(storage, []);
+        assertEqual(loadGroups(storage), []);
+      });
+
+      test("imported tasks get reminders by level, with more notice for exams and projects", () => {
+        const week = 7 * 24 * 60;
+        const twoDays = 2 * 24 * 60;
+        const day = 24 * 60;
+        assertEqual(importReminders("HW9", "light"), [day]);
+        assertEqual(importReminders("Exam 3", "light"), [twoDays, day]);
+        assertEqual(importReminders("Quiz 4", "normal"), [twoDays, day, 60]);
+        assertEqual(importReminders("Group Project", "light"), [week, twoDays, day]);
+        assertEqual(importReminders("Final Project", "light"), [week, twoDays, day]);
+        assertEqual(importReminders("Essay draft", "heavy"), [week, twoDays, day, 60]);
+        assertEqual(importReminders("Exam 3", "none"), []);
+      });
+
+      test("words inside other words don't count as exams or projects", () => {
+        assertEqual(importReminders("Contest reflection", "light"), [24 * 60]);
+        assertEqual(importReminders("Finalize notes", "light"), [24 * 60]);
+      });
+
+      test("reminder times read naturally in the import preview", () => {
+        assertEqual(describeReminderTimes([7 * 24 * 60, 2 * 24 * 60, 24 * 60]), "1 week, 2 days, 1 day before");
+        assertEqual(describeReminderTimes([]), "");
+      });
+
+      const progressWith = (sessions = [], completions = []) => ({ sessions, completions });
+      const session = (date, minutes, fields = {}) => ({ date, minutes, leaves: 0, label: "CS 124", color: 0, ...fields });
+
+      test("a streak counts days with 10 minutes locked in or a task checked off", () => {
+        const progress = progressWith(
+          [session("2026-11-02", 25), session("2026-11-01", 4), session("2026-11-01", 6)],
+          [{ taskId: "a", date: "2026-10-31" }],
+        );
+        assertEqual(streakInfo(progress, "2026-11-02"), { current: 3, longest: 3, activeToday: true });
+      });
+
+      test("a few minutes alone doesn't count, and a missed day breaks the streak", () => {
+        assertEqual(streakInfo(progressWith([session("2026-11-02", 9)]), "2026-11-02").current, 0);
+        const gap = progressWith([], [
+          { taskId: "a", date: "2026-11-02" },
+          { taskId: "b", date: "2026-10-30" },
+          { taskId: "c", date: "2026-10-29" },
+        ]);
+        assertEqual(streakInfo(gap, "2026-11-02"), { current: 1, longest: 2, activeToday: true });
+      });
+
+      test("a streak stays alive today until the day is over", () => {
+        const yesterdayOnly = progressWith([], [{ taskId: "a", date: "2026-11-01" }]);
+        assertEqual(streakInfo(yesterdayOnly, "2026-11-02"), { current: 1, longest: 1, activeToday: false });
+        assertEqual(streakInfo(yesterdayOnly, "2026-11-03").current, 0);
+      });
+
+      test("the week's numbers add up, by class, most time first", () => {
+        const progress = progressWith(
+          [
+            session("2026-11-02", 30),
+            session("2026-11-03", 60, { label: "MATH 220", color: 2, leaves: 2 }),
+            session("2026-11-04", 25, { label: "MATH 220", color: 2 }),
+            session("2026-10-31", 45),
+          ],
+          [{ taskId: "a", date: "2026-11-03" }, { taskId: "b", date: "2026-10-31" }],
+        );
+        assertEqual(weekProgress(progress, "2026-11-04"), {
+          minutes: 115,
+          tasksDone: 1,
+          sessionCount: 3,
+          stayedCount: 2,
+          byLabel: [
+            { label: "MATH 220", color: 2, minutes: 85 },
+            { label: "CS 124", color: 0, minutes: 30 },
+          ],
+        });
+      });
+
+      test("a session is one entry even after adding time, and under a minute isn't recorded", () => {
+        const progress = progressWith();
+        assertEqual(recordFocus(progress, null, session("2026-11-02", 0)), null);
+        const entry = recordFocus(progress, null, session("2026-11-02", 25));
+        recordFocus(progress, entry, session("2026-11-02", 35, { leaves: 1 }));
+        assertEqual(progress.sessions, [session("2026-11-02", 35, { leaves: 1 })]);
+      });
+
+      test("unchecking a task takes back its credit, and checking twice counts once", () => {
+        const progress = progressWith();
+        recordCompletion(progress, "a", "2026-11-02");
+        recordCompletion(progress, "a", "2026-11-02");
+        assertEqual(progress.completions.length, 1);
+        removeCompletion(progress, "a");
+        assertEqual(progress.completions, []);
+      });
+
+      test("progress survives a reload and durations read naturally", () => {
+        const storage = new MemoryStorage();
+        assertEqual(loadProgress(storage), progressWith());
+        saveProgress(storage, progressWith([session("2026-11-02", 25)]));
+        assertEqual(loadProgress(storage).sessions.length, 1);
+        assertEqual([formatDuration(45), formatDuration(180), formatDuration(90), formatDuration(0)], ["45m", "3h", "1h 30m", "0m"]);
+      });
+
+      const at2pm = 14 * 60;
+      const windowsOf = (text, now = 9 * 60) => parseFreeTime(text, now).windows.map(({ start, end }) => `${formatMinutes(start)}-${formatMinutes(end)}`);
+
+      test("free time reads the way people type it", () => {
+        assertEqual(windowsOf("2-5, 7-9"), ["2:00 PM-5:00 PM", "7:00 PM-9:00 PM"]);
+        assertEqual(windowsOf("9am to 11"), ["9:00 AM-11:00 AM"]);
+        assertEqual(windowsOf("1:30-3pm and 8-10pm"), ["1:30 PM-3:00 PM", "8:00 PM-10:00 PM"]);
+        assertEqual(windowsOf("11-2"), ["11:00 AM-2:00 PM"]);
+        assertEqual(windowsOf("14:00-16:30"), ["2:00 PM-4:30 PM"]);
+        assertEqual(windowsOf("12-1"), ["12:00 PM-1:00 PM"]);
+      });
+
+      test("a morning time that already passed means the evening", () => {
+        assertEqual(windowsOf("9-10", 15 * 60), ["9:00 PM-10:00 PM"]);
+      });
+
+      test("overlapping free times merge, and nonsense is explained", () => {
+        assertEqual(windowsOf("2-4, 3-5"), ["2:00 PM-5:00 PM"]);
+        assertEqual(parseFreeTime("", at2pm).error, "Type when you're free. Try something like 2-5, 7-9.");
+        assertEqual(parseFreeTime("whenever", at2pm).error, "I couldn't read “whenever”. Try something like 2-5, 7-9.");
+      });
+
+      const planTask = (name, due, fields = {}) => ({ ...task(name, due), id: name, ...fields });
+      const planFor = (tasks, windows, nowMinutes = at2pm, skippedIds = []) =>
+        planDay(tasks, windows, { todayKey: "2026-11-02", nowMinutes, skippedIds });
+
+      test("the plan goes missed, then time to start, then due today, then soonest", () => {
+        const all = [
+          planTask("Soonest", "2026-11-04"),
+          planTask("Due today", "2026-11-02"),
+          planTask("Start now", "2026-11-05", { estimateMinutes: 480 }),
+          planTask("Missed", "2026-10-30"),
+          planTask("Far away", "2026-12-20"),
+          planTask("Finished", "2026-11-02", { done: true }),
+        ];
+        assertEqual(tasksToPlan(all, "2026-11-02", "14:00").map(({ task: item }) => item.name), ["Missed", "Start now", "Due today", "Soonest"]);
+      });
+
+      test("blocks use estimates, cap at 2 hours, and leave 10-minute breaks", () => {
+        const { blocks } = planFor(
+          [planTask("Long", "2026-11-03", { estimateMinutes: 300 }), planTask("Short", "2026-11-03", { estimateMinutes: 30 }), planTask("Unknown", "2026-11-03")],
+          [{ start: 14 * 60, end: 20 * 60 }],
+        );
+        assertEqual(blocks.map(({ taskId, start, end }) => [taskId, start, end]), [
+          ["Long", 840, 960],
+          ["Short", 970, 1000],
+          ["Unknown", 1010, 1055],
+        ]);
+      });
+
+      test("a task that doesn't fit whole takes a smaller gap, and otherwise is listed as not fitting", () => {
+        const { blocks, unscheduled } = planFor(
+          [planTask("Big", "2026-11-03", { estimateMinutes: 120 }), planTask("Second", "2026-11-03", { estimateMinutes: 60 })],
+          [{ start: 14 * 60, end: 15 * 60 }],
+        );
+        assertEqual(blocks.map(({ taskId, end, partial }) => [taskId, end, partial]), [["Big", 900, true]]);
+        assertEqual(unscheduled.map(({ taskId }) => taskId), ["Second"]);
+      });
+
+      test("work due today finishes before its due time", () => {
+        const { blocks, unscheduled } = planFor(
+          [planTask("Due at 3", "2026-11-02", { time: "15:00", estimateMinutes: 120 }), planTask("Due at 2:10", "2026-11-02", { time: "14:10" })],
+          [{ start: 14 * 60, end: 18 * 60 }],
+        );
+        assertEqual(blocks.map(({ taskId, end }) => [taskId, end]), [["Due at 3", 900]]);
+        assertEqual(unscheduled.map(({ taskId }) => taskId), ["Due at 2:10"]);
+      });
+
+      test("replanning starts from now and leaves out what was skipped", () => {
+        const all = [planTask("A", "2026-11-03", { estimateMinutes: 60 }), planTask("B", "2026-11-03", { estimateMinutes: 60 })];
+        const windows = [{ start: 14 * 60, end: 18 * 60 }];
+        const { blocks } = planFor(all, windows, 15 * 60 + 30, ["A"]);
+        assertEqual(blocks.map(({ taskId, start }) => [taskId, start]), [["B", 930]]);
+      });
+
+      // Monday, Nov 2, 2026 at 2:00 PM.
+      const chatNow = new Date(2026, 10, 2, 14, 0);
+      const understood = (text, tasks = []) => understandMessage(text, tasks, chatNow);
+
+      test("the chat reads a whole sentence into a new task", () => {
+        assertEqual(understood("econ homework due Friday at 5, probably 2 hours"), {
+          type: "add",
+          details: { name: "Econ homework", course: "", due: "2026-11-06", time: "17:00", estimateMinutes: 120 },
+        });
+        assertEqual(understood("add MATH 220 quiz tomorrow at 9am").details, {
+          name: "Quiz", course: "MATH 220", due: "2026-11-03", time: "09:00", estimateMinutes: 0,
+        });
+        assertEqual(understood("I have an exam on Nov 12").details.name, "Exam");
+        assertEqual(understood("I have an exam on Nov 12").details.due, "2026-11-12");
+      });
+
+      test("the chat reads a sentence with a time range as an event, with its place", () => {
+        assertEqual(understood("study group tomorrow 3-5 at Grainger Library"), {
+          type: "addEvent",
+          details: { name: "Study group", date: "2026-11-03", start: "15:00", end: "17:00", location: "Grainger Library" },
+        });
+        assertEqual(understood("add event club meeting Friday from 6:30 to 8pm").details, {
+          name: "Club meeting", date: "2026-11-06", start: "18:30", end: "20:00", location: "",
+        });
+        assertEqual(understood("office hours 11-1pm Thursday").details.start, "11:00");
+        assertEqual(understood("dinner with Sam 7-9").type, "askEventDate");
+        // A length isn't a time range, and plan my day still means plan my day.
+        assertEqual(understood("econ homework due Friday, probably 2-3 hours").type, "add");
+        assertEqual(understood("plan my day, free 2-5, 7-9").type, "plan");
+      });
+
+      test("the chat answers questions about busy weeks and free time", () => {
+        assertEqual(understood("when's my busiest week?"), { type: "busiest" });
+        assertEqual(understood("how busy is next week"), { type: "busyWeek", weekStart: "2026-11-08" });
+        assertEqual(understood("how bad is this week").weekStart, "2026-11-01");
+        assertEqual(understood("when am I free tomorrow?"), { type: "free", date: "2026-11-03" });
+        assertEqual(understood("am i free").date, "2026-11-02");
+      });
+
+      test("the chat understands different ways to say a date", () => {
+        const dueOf = (text) => understood(`read chapter ${text}`).details.due;
+        assertEqual(dueOf("today"), "2026-11-02");
+        assertEqual(dueOf("monday"), "2026-11-09");
+        assertEqual(dueOf("next friday"), "2026-11-13");
+        assertEqual(dueOf("next sunday"), "2026-11-15");
+        assertEqual(dueOf("11/20"), "2026-11-20");
+        assertEqual(dueOf("Jan 5"), "2027-01-05");
+      });
+
+      test("estimates snap to the form's choices", () => {
+        assertEqual(understood("essay friday takes 90 minutes").details.estimateMinutes, 60);
+        assertEqual(understood("essay friday takes half an hour").details.estimateMinutes, 30);
+        assertEqual(understood("essay friday, 4 hours").details.name, "Essay");
+      });
+
+      test("adding without a date asks when, and nonsense isn't treated as a task", () => {
+        assertEqual(understood("add read chapter 3").type, "askDate");
+        assertEqual(understood("purple monkey").type, "unknown");
+        assertEqual(understood("   ").type, "unknown");
+      });
+
+      test("the chat finds tasks by a few words, soonest first, skipping finished ones", () => {
+        const all = [
+          planTask("Essay final draft", "2026-11-20"),
+          planTask("Essay outline", "2026-11-05"),
+          planTask("Essay notes", "2026-11-01", { done: true }),
+        ];
+        assertEqual(findTaskByWords("my essay", all).name, "Essay outline");
+        assertEqual(findTaskByWords("final essay", all).name, "Essay final draft");
+        assertEqual(findTaskByWords("math", all), null);
+      });
+
+      test("the chat understands moving and finishing, without changing anything itself", () => {
+        const essay = planTask("Essay", "2026-11-05", { time: "17:00" });
+        const moved = understood("move essay to friday", [essay]);
+        assertEqual([moved.type, moved.task.name, moved.due, moved.time], ["move", "Essay", "2026-11-06", "17:00"]);
+        assertEqual(understood("move essay to later", [essay]).type, "noDate");
+        assertEqual(understood("move math to friday", [essay]).type, "noTask");
+        assertEqual(understood("I finished essay", [essay]).task.name, "Essay");
+        assertEqual(understood("mark essay as done", [essay]).type, "finish");
+        assertEqual(essay.due, "2026-11-05");
+        assertEqual(essay.done, false);
+      });
+
+      test("asking what's due lists the right tasks", () => {
+        const all = [planTask("Missed", "2026-10-30"), planTask("Now", "2026-11-02"), planTask("Tomorrow", "2026-11-03"), planTask("Later", "2026-11-20")];
+        const names = (text) => understood(text, all).tasks.map((item) => item.name);
+        assertEqual(names("what's due today?"), ["Missed", "Now"]);
+        assertEqual(names("what's due tomorrow"), ["Tomorrow"]);
+        assertEqual(names("what is due this week"), ["Missed", "Now", "Tomorrow"]);
+        assertEqual(understood("what's due friday", all).tasks, []);
+      });
+
+      test("having a little time suggests something urgent that fits", () => {
+        const all = [planTask("Long", "2026-11-04", { estimateMinutes: 120 }), planTask("Quick", "2026-11-05", { estimateMinutes: 30 }), planTask("Missed", "2026-10-30")];
+        const request = understood("I have 45 minutes", all);
+        assertEqual(request.type, "suggest");
+        assertEqual(request.suggestions.map(({ task: item }) => item.name), ["Missed", "Quick", "Long"]);
+        assertEqual(suggestTasks(all, "2026-11-02", "14:00").map(({ task: item }) => item.name), ["Missed", "Long", "Quick"]);
+      });
+
+      test("planning and other requests are recognized", () => {
+        assertEqual(understood("plan my day, free 2-5, 7-9"), { type: "plan", freeText: "2-5, 7-9" });
+        assertEqual(understood("plan my day").freeText, "");
+        assertEqual(understood("how am I doing?").type, "progress");
+        assertEqual(understood("help").type, "help");
+        assertEqual(understood("hi!").type, "hello");
+      });
+
+      // Tuesday, Nov 3, 2026.
+      const morning = new Date(2026, 10, 3, 9, 0);
+      const noProgress = { sessions: [], completions: [] };
+      const dayTasks = [
+        planTask("Missed", "2026-11-01"),
+        planTask("Due A", "2026-11-03"),
+        planTask("Due B", "2026-11-03", { time: "17:00" }),
+        planTask("Done today", "2026-11-03", { done: true }),
+        planTask("Start now", "2026-11-05", { estimateMinutes: 240 }),
+        planTask("Later", "2026-11-20"),
+      ];
+
+      test("opening in the morning summarizes today", () => {
+        assertEqual(morningSummary(dayTasks, noProgress, morning, ""), "Today: 2 due, 1 to start, 1 missed");
+      });
+
+      test("the morning summary shows the streak and skips what's zero", () => {
+        const streak = { sessions: [], completions: [{ taskId: "x", date: "2026-11-02" }, { taskId: "y", date: "2026-11-01" }] };
+        assertEqual(morningSummary([planTask("Due", "2026-11-03")], streak, morning, ""), "Today: 1 due · 🔥 2-day streak");
+      });
+
+      test("a morning with nothing to do says so", () => {
+        assertEqual(morningSummary([], noProgress, morning, ""), "Nothing due today 🌷");
+      });
+
+      test("the morning summary only appears before noon, once a day", () => {
+        assertEqual(morningSummary(dayTasks, noProgress, new Date(2026, 10, 3, 11, 59), ""), "Today: 2 due, 1 to start, 1 missed");
+        assertEqual(morningSummary(dayTasks, noProgress, new Date(2026, 10, 3, 12, 0), ""), null);
+        assertEqual(morningSummary(dayTasks, noProgress, morning, "2026-11-03"), null);
+        assertEqual(morningSummary(dayTasks, noProgress, morning, "2026-11-02"), "Today: 2 due, 1 to start, 1 missed");
+      });
+
+      // Thursday, Nov 5, 2026 at 3:10 PM.
+      const afternoon = new Date(2026, 10, 5, 15, 10);
+
+      test("the time list offers every 15 minutes and 11:59 PM, and grays out times already past today", () => {
+        const today = timeChoices("2026-11-05", afternoon);
+        assertEqual(today.length, 97);
+        assertEqual([today[0].time, today[1].time, today.at(-1).time], ["00:00", "00:15", "23:59"]);
+        assertEqual(today.at(-1).label, formatTime("23:59"));
+        assertEqual(today.filter((choice) => choice.disabled).length, 61);
+        assertEqual(today.find((choice) => !choice.disabled).time, "15:15");
+        assertEqual(timeChoices("2026-11-06", afternoon).some((choice) => choice.disabled), false);
+      });
+
+      test("a time already past today can't be saved, but other days and no time are fine", () => {
+        assertEqual(pastTimeError("2026-11-05", "09:00", afternoon), "That time has already passed today. Pick a later time or another day.");
+        assertEqual(pastTimeError("2026-11-05", "15:10", afternoon), "That time has already passed today. Pick a later time or another day.");
+        assertEqual(pastTimeError("2026-11-05", "15:15", afternoon), null);
+        assertEqual(pastTimeError("2026-11-06", "09:00", afternoon), null);
+        assertEqual(pastTimeError("2026-11-05", "", afternoon), null);
+      });
+
+      const picksWith = (times, dueKey, hours, minutes = 0) =>
+        quickTimePicks(dueKey, new Date(2026, 9, 13, hours, minutes), times).map((p) => `${p.label} ${p.due} ${p.time}`);
+
+      test("quick picks use your own times on other days", () => {
+        assertEqual(picksWith(["07:00", "17:00", "23:59"], "2026-10-20", 9), [
+          "7 AM 2026-10-20 07:00",
+          "5 PM 2026-10-20 17:00",
+          "11:59 PM 2026-10-20 23:59",
+          "No time 2026-10-20 ",
+        ]);
+      });
+
+      test("today's quick picks keep In 1 hour, then your times still ahead, then tomorrow", () => {
+        assertEqual(picksWith(["07:30", "15:00", "20:00"], "2026-10-13", 14, 15), [
+          "In 1 hour 2026-10-13 15:15",
+          "8 PM 2026-10-13 20:00",
+          `Tomorrow ${formatTime("07:30")} 2026-10-14 07:30`,
+          "No time 2026-10-13 ",
+        ]);
+      });
+
+      test("your quick-pick times are sorted, without repeats, and at most 6", () => {
+        assertEqual(cleanQuickTimes(["17:00", "07:00", "17:00", "bad", "25:00"]), ["07:00", "17:00"]);
+        assertEqual(cleanQuickTimes(["01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00"]).length, 6);
+        assertEqual(cleanQuickTimes(null), ["09:00", "12:00", "17:00", "23:59"]);
+        assertEqual([quickPickLabel("12:00"), quickPickLabel("07:00"), quickPickLabel("07:30")], ["Noon", "7 AM", formatTime("07:30")]);
+      });
+
+      test("only your tasks, groups, progress, plan, and settings go to your account, never the Canvas link or Google's pass", () => {
+        const values = {
+          "due-tasks-v1": "[1]",
+          "due-theme": "cozy",
+          "due-canvas-link": "https://canvas.example.edu/feeds/calendars/secret.ics",
+          "due-morning-shown": "2026-11-08",
+        };
+        const storage = { getItem: (key) => values[key] ?? null };
+        assertEqual(syncedData(storage), { "due-tasks-v1": "[1]", "due-theme": "cozy" });
+        assertEqual(SYNCED_KEYS.includes("due-canvas-link"), false);
+        // Google's pass and the area used for place suggestions stay in this browser too.
+        assertEqual([SYNCED_KEYS.includes("due-google-token"), SYNCED_KEYS.includes("due-near")], [false, false]);
+      });
+
+      test("the sign-in form needs a username or email and a password", () => {
+        assertEqual(signInError({ login: " ", password: "secret1" }), "Type your username or email.");
+        assertEqual(signInError({ login: "olivia", password: "" }), "Type your password.");
+        assertEqual(signInError({ login: "olivia", password: "secret1" }), "");
+        assertEqual(signInError({ login: "o@x.com", password: "secret1" }), "");
+      });
+
+      test("creating an account checks the username and password first", () => {
+        assertEqual(newLoginError({ username: "", password: "secret1" }), "Pick a username.");
+        assertEqual(newLoginError({ username: "o@x.com", password: "secret1" }), "Usernames can only use letters, numbers, and _.");
+        assertEqual(newLoginError({ username: "liv groh", password: "secret1" }), "Usernames can only use letters, numbers, and _.");
+        assertEqual(newLoginError({ username: "ol", password: "secret1" }), "Use 3 to 20 characters for your username.");
+        assertEqual(newLoginError({ username: "olivia_g", password: "abc" }), "Use at least 6 characters for your password.");
+        assertEqual(newLoginError({ username: " Olivia_G ", password: "abcdef" }), "");
+        assertEqual(normalizeUsername(" Olivia_G "), "olivia_g");
+      });
+
+      test("creating an account then asks for an email and a first and last name", () => {
+        const name = { firstName: "Olivia", lastName: "Groh" };
+        assertEqual(profileError({ email: "", ...name }), "Type your email.");
+        assertEqual(profileError({ email: "olivia", ...name }), "That email doesn't look right. It needs an @.");
+        assertEqual(profileError({ email: "o@x.com", ...name, firstName: "  " }), "Type your first name.");
+        assertEqual(profileError({ email: "o@x.com", ...name, lastName: "" }), "Type your last name.");
+        assertEqual(profileError({ email: " o@x.com ", ...name }), "");
+      });
+
+      test("signing in on a browser with its own tasks and events keeps both sets", () => {
+        const account = {
+          "due-tasks-v1": JSON.stringify([{ id: "a", name: "Account copy" }, { id: "b", name: "Only in account" }]),
+          "due-groups-v1": JSON.stringify([{ id: "school", name: "School", color: 0 }]),
+          [EVENTS_KEY]: JSON.stringify([{ id: "e1", name: "Club" }]),
+          "due-theme": "dark",
+        };
+        const local = {
+          "due-tasks-v1": JSON.stringify([{ id: "a", name: "Local copy" }, { id: "c", name: "Only here" }]),
+          "due-groups-v1": JSON.stringify([{ id: "school", name: "School", color: 0 }, { id: "gym", name: "Gym", color: 2 }]),
+          [EVENTS_KEY]: JSON.stringify([{ id: "e2", name: "Study group" }]),
+          "due-theme": "pastel",
+          "due-plan-v1": "{}",
+        };
+        const merged = mergeSyncedData(account, local);
+        assertEqual(JSON.parse(merged["due-tasks-v1"]).map((task) => task.name), ["Account copy", "Only in account", "Only here"]);
+        assertEqual(JSON.parse(merged["due-groups-v1"]).map((group) => group.id), ["school", "gym"]);
+        assertEqual(JSON.parse(merged[EVENTS_KEY]).map((event) => event.name), ["Club", "Study group"]);
+        assertEqual(merged["due-theme"], "dark");
+        assertEqual(merged["due-plan-v1"], "{}");
+      });
+
+      test("Google Calendar events land on the right days at local times", () => {
+        const local = (text) => new Date(text).toISOString();
+        const lecture = { id: "m", summary: "MATH 220", start: { dateTime: local("2026-11-09T10:00") }, end: { dateTime: local("2026-11-09T10:50") } };
+        assertEqual(googleEventDays(lecture, "#039be5"), [
+          { id: "m:2026-11-09", sourceId: "", name: "MATH 220", date: "2026-11-09", start: "10:00", end: "10:50", color: "#039be5" },
+        ]);
+        const trip = { id: "t", summary: "Trip", start: { date: "2026-11-13" }, end: { date: "2026-11-15" } };
+        assertEqual(googleEventDays(trip).map((day) => [day.date, day.start]), [["2026-11-13", ""], ["2026-11-14", ""]]);
+        const lateNight = { id: "n", start: { dateTime: local("2026-11-09T22:00") }, end: { dateTime: local("2026-11-10T01:00") } };
+        assertEqual(googleEventDays(lateNight).map((day) => [day.name, day.date, day.start, day.end]), [
+          ["(No title)", "2026-11-09", "22:00", "23:59"],
+          ["(No title)", "2026-11-10", "00:00", "01:00"],
+        ]);
+        const conference = { id: "c", summary: "Conference", start: { dateTime: local("2026-11-09T18:00") }, end: { dateTime: local("2026-11-11T12:00") } };
+        assertEqual(googleEventDays(conference).map((day) => [day.date, day.start, day.end]), [
+          ["2026-11-09", "18:00", "23:59"],
+          ["2026-11-10", "", ""],
+          ["2026-11-11", "00:00", "12:00"],
+        ]);
+        const toMidnight = { id: "z", summary: "Study", start: { dateTime: local("2026-11-09T21:00") }, end: { dateTime: local("2026-11-10T00:00") } };
+        assertEqual(googleEventDays(toMidnight).length, 1);
+        assertEqual(googleEventDays({ ...lecture, status: "cancelled" }), []);
+        assertEqual(googleEventDays({ ...lecture, attendees: [{ self: true, responseStatus: "declined" }] }), []);
+      });
+
+      test("a Google event that's already a task isn't shown twice", () => {
+        const entry = (sourceId, name, date) => ({ id: `${sourceId}:${date}`, sourceId, name, date, start: "", end: "" });
+        const entries = [
+          entry("event-assignment-1661958", "HW8 [math_220_120268_262973]", "2026-10-26"),
+          entry("x1", "Exam 2", "2026-11-12"),
+          entry("x2", "exam 2", "2026-11-13"),
+          entry("x3", "Calculus MATH 220 AL1", "2026-11-12"),
+        ];
+        const tasks = [
+          { id: "a", name: "Homework 8", due: "2026-10-27", canvasId: "event-assignment-1661958" },
+          { id: "b", name: "Exam 2", due: "2026-11-12" },
+        ];
+        assertEqual(eventsNotInTasks(entries, tasks).map((kept) => kept.sourceId), ["x2", "x3"]);
+      });
+
+      test("overlapping Google events sit side by side; back-to-back ones don't", () => {
+        const entry = (name, start, end) => ({ name, start, end });
+        const placed = eventColumns([
+          entry("Discussion A", "10:00", "15:00"),
+          entry("Lunch", "12:00", "13:00"),
+          entry("Discussion B", "15:00", "17:00"),
+          entry("Office hours", "15:30", "17:00"),
+          entry("Dinner", "18:00", "19:00"),
+        ]);
+        assertEqual(placed.map(({ entry: { name }, column, columns }) => `${name} ${column}/${columns}`), [
+          "Discussion A 0/2",
+          "Lunch 1/2",
+          "Discussion B 0/2",
+          "Office hours 1/2",
+          "Dinner 0/1",
+        ]);
+      });
+
+      test("free time is the gaps between events, 8 AM to 10 PM, with 10 minutes around each", () => {
+        const entry = (start, end) => ({ start, end });
+        const day = [entry("09:00", "09:50"), entry("10:00", "10:50"), entry("15:00", "18:00"), entry("15:30", "16:50"), entry("20:00", "22:00")];
+        const windows = freeWindows(day);
+        assertEqual(describeFreeWindows(windows), "8am-8:50am, 11am-2:50pm, 6:10pm-7:50pm");
+        assertEqual(parseFreeTime(describeFreeWindows(windows), 0).windows, windows);
+        assertEqual(describeFreeWindows(freeWindows(day, 13 * 60 + 7)), "1:10pm-2:50pm, 6:10pm-7:50pm");
+        assertEqual(describeFreeWindows(freeWindows([])), "8am-10pm");
+        assertEqual(freeWindows([entry("07:00", "23:00")]), []);
+      });
+
+      test("free time can be limited to a time of day or exact times", () => {
+        const entry = (start, end) => ({ start, end });
+        const day = [entry("09:00", "09:50"), entry("10:00", "10:50"), entry("15:00", "18:00"), entry("20:00", "22:00")];
+        const between = (startHour, endHour) => describeFreeWindows(freeWindows(day, 0, { start: startHour * 60, end: endHour * 60 }));
+        assertEqual(between(8, 12), "8am-8:50am, 11am-12pm");
+        assertEqual(between(12, 17), "12pm-2:50pm");
+        assertEqual(between(17, 22), "6:10pm-7:50pm");
+        assertEqual(between(21, 23.5), "10:10pm-11:30pm");
+        assertEqual(freeWindows(day, 0, { start: 11 * 60 + 50, end: 12 * 60 + 10 }), []);
+      });
+
+      test("planning stops at how much you want to work", () => {
+        const task = (id, estimateMinutes) => ({ id, name: id, due: "2026-11-10", time: "", done: false, estimateMinutes });
+        const tasks = [task("essay", 90), task("problem set", 60), task("reading", 30)];
+        const plan = planDay(tasks, [{ start: 9 * 60, end: 21 * 60 }], { todayKey: "2026-11-10", nowMinutes: 9 * 60, maxMinutes: 120 });
+        assertEqual(plan.blocks.map((block) => [block.taskId, block.end - block.start]), [["essay", 90], ["problem set", 30]]);
+        assertEqual(plan.unscheduled.map((item) => item.taskId), ["reading"]);
+      });
+
+      test("a day lists its all-day Google events first, then by time", () => {
+        const entries = [
+          { id: "b", name: "Lab", date: "2026-11-09", start: "14:00", end: "15:00" },
+          { id: "a", name: "MATH 220", date: "2026-11-09", start: "10:00", end: "10:50" },
+          { id: "c", name: "Holiday", date: "2026-11-09", start: "", end: "" },
+          { id: "d", name: "Other day", date: "2026-11-10", start: "09:00", end: "10:00" },
+        ];
+        assertEqual(googleEventsOn(entries, "2026-11-09").map((entry) => entry.name), ["Holiday", "MATH 220", "Lab"]);
+      });
+
+      test("sign-in problems are explained in plain words", () => {
+        assertEqual(authErrorMessage("auth/invalid-credential"), "That username or password isn't right. Try again, or use Forgot password.");
+        assertEqual(authErrorMessage("due/username-taken"), "That username is taken. Try another one.");
+        assertEqual(authErrorMessage("auth/email-already-in-use"), "There's already an account with that email. Sign in instead.");
+        assertEqual(authErrorMessage("auth/network-request-failed"), "Couldn't reach Due Next. Check your internet and try again.");
+        assertEqual(authErrorMessage("auth/something-new"), "Something went wrong. Try again in a moment.");
+      });
+
+      const results = document.getElementById("results");
+      let failures = 0;
+      for (const { name, body } of tests) {
+        const item = document.createElement("li");
+        try {
+          body();
+          item.className = "pass";
+          item.textContent = `✓ ${name}`;
+        } catch (error) {
+          failures++;
+          item.className = "fail";
+          item.textContent = `✗ ${name}: ${error.message}`;
+        }
+        results.append(item);
+      }
+      const summary = document.getElementById("summary");
+      summary.textContent = failures
+        ? `${failures} of ${tests.length} tests failed.`
+        : `All ${tests.length} tests passed.`;
+      summary.className = failures ? "fail" : "pass";
+    </script>
+  </body>
+</html>

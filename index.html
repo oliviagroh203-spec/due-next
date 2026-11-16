@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Due Next</title>
+    <script>
+      // Screen checks (screen-checks.html) open Due Next with ?screen-check inside their own page.
+      // Then everything is saved in memory only, starting from the checks' pretend data, so they can
+      // never touch real tasks or an account. account.js refuses to start a check without this.
+      if (new URLSearchParams(location.search).has("screen-check") && window.parent !== window && window.parent.screenCheckData) {
+        const memoryStorage = (values) => {
+          const memory = new Map(Object.entries(values));
+          return {
+            getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+            setItem: (key, value) => void memory.set(key, String(value)),
+            removeItem: (key) => void memory.delete(key),
+            clear: () => memory.clear(),
+            key: (index) => [...memory.keys()][index] ?? null,
+            get length() {
+              return memory.size;
+            },
+          };
+        };
+        Object.defineProperty(window, "localStorage", { value: memoryStorage(window.parent.screenCheckData()), configurable: true });
+        Object.defineProperty(window, "sessionStorage", { value: memoryStorage({}), configurable: true });
+        window.dueScreenCheck = { storage: window.localStorage };
+      }
+    </script>
+    <script>
+      // Apply the saved theme and background before the page draws, so it never flashes the defaults first.
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("due-theme") || "pastel";
+        document.documentElement.dataset.background = localStorage.getItem("due-background") || "plain";
+      } catch {
+        document.documentElement.dataset.theme = "pastel";
+        document.documentElement.dataset.background = "plain";
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="account.js"></script>
+  </head>
+  <body class="signed-out">
+    <section id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
+      <div class="auth-card">
+        <p class="auth-logo">Due Next</p>
+        <p id="auth-status" class="auth-status" role="status">Loading…</p>
+        <button id="auth-retry" type="button" class="primary-button" hidden>Try again</button>
+        <form id="auth-form" class="auth-form" novalidate hidden>
+          <h1 id="auth-title">Sign in</h1>
+          <label for="auth-login">Username or email</label>
+          <input id="auth-login" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" />
+          <label for="auth-password">Password</label>
+          <input id="auth-password" type="password" autocomplete="current-password" />
+          <p id="auth-message" class="form-message" role="alert"></p>
+          <button id="auth-submit" type="submit" class="primary-button">Sign in</button>
+          <button id="auth-forgot" type="button" class="link-button">Forgot password?</button>
+          <p class="auth-switch">
+            New to Due Next?
+            <button id="show-create-account" type="button" class="link-button">Create an account</button>
+          </p>
+        </form>
+        <form id="create-form" class="auth-form" novalidate hidden aria-labelledby="create-title">
+          <h1 id="create-title">Create your account</h1>
+          <p id="create-step" class="auth-step">Step 1 of 2</p>
+          <div id="create-step-one" class="auth-fields">
+            <label for="create-username">Username</label>
+            <input id="create-username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" />
+            <p class="auth-hint">Letters, numbers, and _</p>
+            <label for="create-password">Password</label>
+            <input id="create-password" type="password" autocomplete="new-password" />
+            <p class="auth-hint">At least 6 characters</p>
+          </div>
+          <div id="create-step-two" class="auth-fields" hidden>
+            <label for="create-email">Email</label>
+            <input id="create-email" type="email" autocomplete="email" />
+            <p class="auth-hint">Used only if you forget your password</p>
+            <label for="create-first-name">First name</label>
+            <input id="create-first-name" type="text" autocomplete="given-name" />
+            <label for="create-last-name">Last name</label>
+            <input id="create-last-name" type="text" autocomplete="family-name" />
+          </div>
+          <p id="create-message" class="form-message" role="alert"></p>
+          <button id="create-submit" type="submit" class="primary-button">Next</button>
+          <button id="create-back" type="button" class="link-button" hidden>Back</button>
+          <p class="auth-switch">
+            Already have an account?
+            <button id="show-sign-in" type="button" class="link-button">Sign in</button>
+          </p>
+        </form>
+        <div id="auth-welcome" class="auth-welcome" role="status" hidden>
+          <p class="auth-welcome-title">Account created!</p>
+          <p id="auth-welcome-name"></p>
+        </div>
+      </div>
+    </section>
+
+    <main>
+      <header class="top-bar">
+        <nav class="top-left" aria-label="Move through the calendar">
+          <button id="open-settings" type="button" class="icon-button menu-button" aria-label="Settings">☰</button>
+          <h1>Due Next</h1>
+          <div class="mode-switch" role="tablist" aria-label="Calendar or semester">
+            <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">📅 Calendar</button>
+            <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">📊 Semester</button>
+          </div>
+          <button id="go-to-today" type="button" class="quiet-button">Today</button>
+          <button id="previous-period" type="button" class="icon-button round">‹</button>
+          <button id="next-period" type="button" class="icon-button round">›</button>
+          <p id="period-label" class="period-label" aria-live="polite"></p>
+        </nav>
+        <div class="top-right">
+          <button id="open-lock-in" type="button" class="quiet-button">🔒 Lock in</button>
+          <button id="open-progress" type="button" class="quiet-button">📈 Progress</button>
+          <button id="open-import" type="button" class="quiet-button">⬇ Import</button>
+          <label class="visually-hidden" for="view-select">View</label>
+          <select id="view-select" class="view-select">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="agenda">Agenda</option>
+          </select>
+          <button id="new-task" type="button" class="primary-button">+ New</button>
+        </div>
+      </header>
+
+      <p id="storage-error" class="storage-error" role="alert" hidden></p>
+
+      <div id="notify-banner" class="notify-banner" hidden>
+        <p id="notify-text"></p>
+        <button id="notify-enable" type="button" class="primary-button">Turn on notifications</button>
+      </div>
+
+      <p id="sync-error" class="storage-error" role="alert" hidden></p>
+      <p id="google-banner" class="google-banner" role="status" hidden>
+        <span class="google-banner-icon" aria-hidden="true">📅</span>
+        <span id="google-banner-text" class="google-banner-text"></span>
+        <button id="google-banner-refresh" type="button" class="primary-button">Show Google Calendar</button>
+        <button id="google-banner-not-now" type="button" class="quiet-button" hidden>Not now</button>
+      </p>
+
+      <ul id="reminder-alerts" class="reminder-alerts" aria-live="polite"></ul>
+
+      <details id="overdue" class="overdue">
+        <summary>Overdue <span id="overdue-count" class="overdue-count">0</span></summary>
+        <ul id="overdue-list" class="overdue-list"></ul>
+        <p id="overdue-empty" class="overdue-empty">Nothing overdue.</p>
+      </details>
+
+      <ul id="group-legend" class="group-legend" aria-label="Color key" hidden></ul>
+
+      <div class="workspace">
+        <div class="calendar-area">
+          <section id="week" class="week-grid" aria-label="This week"></section>
+
+          <section id="agenda" class="agenda" aria-label="Coming up" hidden></section>
+
+          <section id="month" class="month" aria-label="Tasks this month" hidden></section>
+
+          <section id="day-view" class="day-view" aria-label="Tasks this day" hidden>
+            <div class="segmented day-layout-switch" role="group" aria-label="Day layout">
+              <button type="button" class="segment" data-layout="timeline">Timeline</button>
+              <button type="button" class="segment" data-layout="list">List</button>
+            </div>
+            <div id="day-content"></div>
+          </section>
+        </div>
+
+        <div class="side-panels">
+          <aside class="today-panel" aria-labelledby="today-title">
+            <div class="today-head">
+              <h2 id="today-title">Today</h2>
+              <p id="today-summary" class="today-summary"></p>
+            </div>
+            <button id="open-plan" type="button" class="primary-button plan-button">Plan my day</button>
+            <ul id="today-list" class="today-list"></ul>
+            <p id="today-empty" class="today-empty" hidden>Nothing due today 🎉</p>
+          </aside>
+
+          <aside class="today-panel" aria-labelledby="start-by-title">
+            <div class="today-head">
+              <h2 id="start-by-title">Start by</h2>
+              <p class="today-summary">What's coming up to begin</p>
+            </div>
+            <ul id="start-by-list" class="today-list"></ul>
+            <p id="start-by-empty" class="today-empty" hidden>
+              Add ⏱ how long a task will take, and when to start it shows up here.
+            </p>
+          </aside>
+        </div>
+      </div>
+
+      <section id="semester-page" class="semester-page" aria-labelledby="semester-title" hidden>
+        <div class="semester-banner">
+          <h2 id="semester-title">Your semester</h2>
+          <p>How heavy each week is, from what's due. Exams and projects count extra. Click a week to open it in the calendar.</p>
+        </div>
+        <section id="semester" class="semester" aria-label="Weeks this semester"></section>
+      </section>
+
+      <p id="hint" class="hint">Click a day to add a task due then. Click a circle to check a task off, or its name to change it.</p>
+
+      <p id="toast" class="toast" role="status" aria-live="polite"></p>
+
+      <div id="morning-card" class="morning-card" role="status" hidden>
+        <div>
+          <p class="morning-title">☀️ Good morning</p>
+          <p id="morning-text" class="morning-text"></p>
+        </div>
+        <button id="morning-dismiss" type="button" class="quiet-button">Got it</button>
+      </div>
+    </main>
+
+    <dialog id="delete-dialog" aria-labelledby="delete-title">
+      <form method="dialog" class="missed-body">
+        <h2 id="delete-title"></h2>
+        <p id="delete-details" class="missed-details">This task repeats. Which ones should be deleted?</p>
+        <div class="delete-choices">
+          <button type="submit" value="one" class="missed-action">Just this one</button>
+          <button type="submit" value="following" class="missed-action">This and all after it</button>
+          <button type="submit" value="all" class="missed-action">All of them</button>
+          <button type="submit" value="cancel" class="quiet-button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="focus-start" aria-labelledby="focus-start-title">
+      <div class="missed-body">
+        <h2 id="focus-start-title"></h2>
+        <p id="focus-no-tasks" class="missed-details" hidden>
+          You don't have any unfinished tasks. Add a task first, then lock in on it.
+        </p>
+        <div id="focus-task-field" class="field" hidden>
+          <label for="focus-task-select">What are you working on?</label>
+          <select id="focus-task-select"></select>
+        </div>
+        <div id="focus-length-section" class="focus-length-section">
+          <p class="missed-details">How long do you want to focus?</p>
+          <div id="focus-lengths" class="focus-lengths"></div>
+        </div>
+        <div class="dialog-actions">
+          <button id="focus-cancel" type="button" class="quiet-button">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="focus-screen" class="focus-screen" aria-labelledby="focus-task">
+      <div class="focus-center">
+        <p id="focus-kicker" class="dialog-kicker"></p>
+        <h2 id="focus-task" class="focus-task"></h2>
+        <p id="focus-course" class="focus-course"></p>
+        <p id="focus-countdown" class="focus-countdown" role="timer"></p>
+        <p id="focus-status" class="focus-status" aria-live="polite"></p>
+        <div id="focus-actions" class="focus-actions"></div>
+      </div>
+    </dialog>
+
+    <dialog id="import-dialog" aria-labelledby="import-title">
+      <form id="import-form" class="missed-body" novalidate>
+        <h2 id="import-title">Import tasks</h2>
+        <div class="segmented import-modes" role="group" aria-label="What do you have?">
+          <button type="button" class="segment" data-import-mode="file">📄 File</button>
+          <button type="button" class="segment" data-import-mode="link">🔗 Calendar link</button>
+          <button type="button" class="segment" data-import-mode="paste">✍️ Paste text</button>
+        </div>
+        <p id="import-intro" class="missed-details"></p>
+
+        <ol id="import-link-steps" class="import-steps" hidden>
+          <li class="import-step">
+            <span class="step-title">Copy your Canvas calendar link</span>
+            <span class="step-help">
+              In Canvas Calendar, click <strong>Calendar Feed</strong> at the bottom right and copy the link it shows.
+            </span>
+            <a class="quiet-button step-button" href="https://canvas.illinois.edu/calendar" target="_blank" rel="noopener">
+              Open Canvas Calendar ↗
+            </a>
+          </li>
+          <li class="import-step">
+            <label class="step-title" for="canvas-link">Paste it here</label>
+            <span class="step-help">
+              Due Next remembers it in this browser only. Keep it private: anyone with it can see your Canvas calendar.
+            </span>
+            <input
+              id="canvas-link"
+              type="url"
+              placeholder="https://canvas.illinois.edu/feeds/calendars/…"
+              autocomplete="off"
+            />
+          </li>
+          <li class="import-step">
+            <span class="step-title">Download your calendar file, then choose it below</span>
+            <span class="step-help">
+              It saves to your Downloads folder as a <strong>.ics</strong> file. If your Mac offers to open it in the
+              Calendar app, say no.
+            </span>
+            <button id="canvas-download" type="button" class="primary-button step-button">⬇ Download my calendar file</button>
+          </li>
+        </ol>
+
+        <div id="import-file-area">
+          <input id="import-file" class="visually-hidden" type="file" accept=".pdf,application/pdf,.ics,text/calendar" />
+          <label id="file-drop" class="file-drop" for="import-file">
+            <span aria-hidden="true">📄</span>
+            <span id="file-drop-text">Choose a PDF or .ics file, or drag it here</span>
+          </label>
+        </div>
+
+        <div id="import-paste-area" class="import-paste" hidden>
+          <textarea
+            id="import-text"
+            rows="6"
+            aria-label="Schedule to read"
+            placeholder="Sep 15 – Homework 1 due&#10;Thu 10/1: Quiz 2&#10;October 29 Exam 2"
+          ></textarea>
+          <button id="find-dates" type="button" class="quiet-button step-button">Find dates</button>
+        </div>
+
+        <div id="import-course-row" class="field" hidden>
+          <label for="import-course">Class for these <span class="optional">(optional)</span></label>
+          <input id="import-course" type="text" placeholder="e.g. MATH 220" autocomplete="off" />
+        </div>
+        <div id="import-group-row" class="field" hidden>
+          <label for="import-group">Group for these <span class="optional">(sets their color)</span></label>
+          <select id="import-group"></select>
+          <input id="import-new-group" type="text" placeholder="New group name" aria-label="New group name" autocomplete="off" hidden />
+        </div>
+
+        <div id="import-reminder-row" class="field" hidden>
+          <label for="import-reminders">Remind me <span class="optional">(exams and projects get extra notice)</span></label>
+          <select id="import-reminders"></select>
+        </div>
+
+        <p id="import-summary" class="missed-details" hidden></p>
+        <div id="import-preview" class="import-preview" hidden>
+          <label class="import-row import-select-all"><input id="import-all" type="checkbox" /> Select all</label>
+          <ul id="import-list" class="import-list"></ul>
+        </div>
+        <p id="import-message" class="form-message" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="import-cancel" type="button" class="quiet-button">Cancel</button>
+          <button id="import-submit" type="submit" class="primary-button" disabled>Add tasks</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="chat-launcher">
+      <p id="chat-greeting" class="chat-greeting" hidden>
+        Need help? Ask me about your tasks.
+        <button id="dismiss-chat-greeting" type="button" class="chat-greeting-close" aria-label="Hide this message">×</button>
+      </p>
+      <button id="open-chat" type="button" class="chat-launcher-button" aria-label="Open chat" aria-expanded="false">💬</button>
+    </div>
+
+    <dialog id="chat-panel" class="chat-panel" aria-labelledby="chat-title">
+      <div class="chat-body">
+        <div class="chat-head">
+          <div>
+            <h2 id="chat-title">Ask Due Next</h2>
+            <p class="chat-subtitle">Your task helper</p>
+          </div>
+          <button id="close-chat" type="button" class="icon-button" aria-label="Close chat">×</button>
+        </div>
+        <ul id="chat-messages" class="chat-messages" aria-live="polite"></ul>
+        <div class="chat-suggestions" role="group" aria-label="Things to ask">
+          <button type="button" class="chat-suggestion" data-ask="What's due today?">What's due today?</button>
+          <button type="button" class="chat-suggestion" data-ask="When am I free today?">When am I free?</button>
+          <button type="button" class="chat-suggestion" data-ask="When's my busiest week?">Busiest week?</button>
+          <button type="button" class="chat-suggestion" data-ask="I have 30 minutes">I have 30 minutes</button>
+          <button type="button" class="chat-suggestion" data-fill="Study group tomorrow 3-5 at Grainger Library">+ Add an event</button>
+        </div>
+        <form id="chat-form" class="chat-form" novalidate>
+          <input id="chat-input" type="text" placeholder="Type a message…" aria-label="Message" autocomplete="off" />
+          <button type="submit" class="primary-button">Send</button>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="plan-panel" class="theme-panel" aria-labelledby="plan-title">
+      <div class="theme-panel-body">
+        <div class="theme-panel-head">
+          <h2 id="plan-title">Plan my day</h2>
+          <button id="close-plan" type="button" class="icon-button round" aria-label="Close">×</button>
+        </div>
+        <form id="plan-form" class="plan-form" novalidate>
+          <p class="plan-label" id="plan-hours-label">How much do you want to work?</p>
+          <div class="plan-hours" role="group" aria-labelledby="plan-hours-label">
+            <button type="button" class="quick-pick" data-plan-hours="1">1h</button>
+            <button type="button" class="quick-pick" data-plan-hours="2">2h</button>
+            <button type="button" class="quick-pick" data-plan-hours="3">3h</button>
+            <button type="button" class="quick-pick" data-plan-hours="4">4h</button>
+          </div>
+          <p class="plan-label" id="plan-period-label">When?</p>
+          <div class="plan-hours" role="group" aria-labelledby="plan-period-label">
+            <button type="button" class="quick-pick" data-plan-period="anytime">Anytime</button>
+            <button type="button" class="quick-pick" data-plan-period="morning">Morning</button>
+            <button type="button" class="quick-pick" data-plan-period="afternoon">Afternoon</button>
+            <button type="button" class="quick-pick" data-plan-period="evening">Evening</button>
+          </div>
+          <button id="plan-exact-toggle" type="button" class="link-button plan-switch" aria-expanded="false" aria-controls="plan-exact">
+            Choose exact times
+          </button>
+          <div id="plan-exact" class="plan-exact" hidden>
+            <div class="plan-exact-row">
+              <label for="plan-from">From</label>
+              <select id="plan-from"></select>
+              <label for="plan-to">to</label>
+              <select id="plan-to"></select>
+            </div>
+            <div class="plan-exact-row">
+              <label for="plan-amount">Work for</label>
+              <select id="plan-amount"></select>
+            </div>
+          </div>
+          <p id="plan-source" class="step-help"></p>
+          <p id="plan-message" class="form-message" role="status" aria-live="polite"></p>
+          <button type="submit" class="primary-button plan-make">Plan it</button>
+        </form>
+        <div id="plan-result" class="plan-result" hidden>
+          <ul id="plan-blocks" class="plan-blocks"></ul>
+          <p id="plan-empty" class="step-help" hidden></p>
+          <div id="plan-unscheduled" class="plan-unscheduled" hidden>
+            <h3 class="progress-heading">Didn't fit today</h3>
+            <ul id="plan-unscheduled-list"></ul>
+          </div>
+          <button id="plan-replan" type="button" class="primary-button plan-make">↻ Replan from now</button>
+          <p class="step-help">Finished early, skipped something, or got off track? Replan fits what's left into the rest of your free time.</p>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="progress-panel" class="theme-panel" aria-labelledby="progress-title">
+      <div class="theme-panel-body">
+        <div class="theme-panel-head">
+          <h2 id="progress-title">Progress</h2>
+          <button id="close-progress" type="button" class="icon-button round" aria-label="Close">×</button>
+        </div>
+        <div class="streak-card">
+          <p class="streak-number"><span aria-hidden="true">🔥</span> <span id="streak-count"></span></p>
+          <p id="streak-note" class="streak-note"></p>
+        </div>
+        <h3 class="progress-heading">This week</h3>
+        <div class="progress-stats">
+          <div class="progress-stat">
+            <span id="week-time" class="progress-stat-number"></span>
+            <span class="progress-stat-label">locked in</span>
+          </div>
+          <div class="progress-stat">
+            <span id="week-tasks" class="progress-stat-number"></span>
+            <span id="week-tasks-label" class="progress-stat-label"></span>
+          </div>
+        </div>
+        <p id="week-focus" class="streak-note"></p>
+        <ul id="week-bars" class="progress-bars"></ul>
+        <p class="step-help">Counting started when this page was added, so earlier work isn't included.</p>
+      </div>
+    </dialog>
+
+    <dialog id="settings-panel" class="settings-panel" aria-labelledby="settings-title">
+      <div class="settings-head">
+        <button id="close-settings" type="button" class="icon-button" aria-label="Close settings">×</button>
+        <h2 id="settings-title">Settings</h2>
+      </div>
+      <div class="settings-layout">
+        <nav class="settings-list" aria-label="Settings sections">
+          <button type="button" class="settings-row" data-settings-section="look">Look</button>
+          <button type="button" class="settings-row" data-settings-section="quick-picks">Quick picks</button>
+          <button type="button" class="settings-row" data-settings-section="reminders">Reminders</button>
+          <button type="button" class="settings-row" data-settings-section="workload">Workload</button>
+          <button type="button" class="settings-row" data-settings-section="canvas">Canvas</button>
+          <button type="button" class="settings-row" data-settings-section="google">Google Calendar</button>
+          <button type="button" class="settings-row" data-settings-section="account">Account</button>
+        </nav>
+        <div class="settings-content">
+          <section class="settings-page" data-settings-page="look" aria-labelledby="look-title">
+            <h3 id="look-title" class="settings-page-title">Theme</h3>
+            <div class="settings-options">
+            <button type="button" class="settings-option" data-theme-choice="pastel">
+              <span class="settings-option-name">Soft pastels</span>
+              <span class="theme-swatches" data-theme="pastel" aria-hidden="true"><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span></span>
+            </button>
+            <button type="button" class="settings-option" data-theme-choice="cozy">
+              <span class="settings-option-name">Warm and cozy</span>
+              <span class="theme-swatches" data-theme="cozy" aria-hidden="true"><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span></span>
+            </button>
+            <button type="button" class="settings-option" data-theme-choice="classic">
+              <span class="settings-option-name">Classic</span>
+              <span class="theme-swatches" data-theme="classic" aria-hidden="true"><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span><span class="theme-swatch"></span></span>
+            </button>
+            </div>
+            <h3 class="settings-page-title">Background</h3>
+            <div class="settings-options">
+            <button type="button" class="settings-option" data-background-choice="plain">
+              <span class="settings-option-name">Plain</span>
+              <span class="background-preview" data-background="plain" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="settings-option" data-background-choice="gradient">
+              <span class="settings-option-name">Gradient</span>
+              <span class="background-preview" data-background="gradient" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="settings-option" data-background-choice="dots">
+              <span class="settings-option-name">Dots</span>
+              <span class="background-preview" data-background="dots" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="settings-option" data-background-choice="grid">
+              <span class="settings-option-name">Grid</span>
+              <span class="background-preview" data-background="grid" aria-hidden="true"></span>
+            </button>
+            </div>
+          </section>
+
+          <section class="settings-page" data-settings-page="quick-picks" aria-labelledby="settings-quick-title" hidden>
+            <h3 id="settings-quick-title" class="settings-page-title">Quick picks</h3>
+            <p class="step-help">The times offered as one-click choices when you add a task. Up to 6.</p>
+            <div id="settings-quick-times" class="quick-picks-list"></div>
+            <div class="quick-times-add">
+              <select id="settings-quick-time-choice" aria-label="Time to add"></select>
+              <button id="settings-add-quick-time" type="button" class="quiet-button">+ Add</button>
+            </div>
+            <p id="settings-quick-times-message" class="form-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="settings-page" data-settings-page="reminders" aria-labelledby="settings-reminders-title" hidden>
+            <h3 id="settings-reminders-title" class="settings-page-title">Event reminders</h3>
+            <p class="step-help">Every event reminds you this long before it starts. You can change it for one event in that event's box.</p>
+            <div id="event-reminder-options" class="settings-options"></div>
+            <h3 class="settings-page-title">Getting there</h3>
+            <p class="step-help">
+              For an event with a location, Due Next works out the trip from where you are and reminds you when it's time
+              to leave instead. You can pick differently for one event.
+            </p>
+            <div id="travel-mode-options" class="settings-options"></div>
+          </section>
+
+          <section class="settings-page" data-settings-page="workload" aria-labelledby="settings-workload-title" hidden>
+            <h3 id="settings-workload-title" class="settings-page-title">How much can you handle in a week?</h3>
+            <p class="step-help">This decides when a week counts as light, steady, busy, or very busy on the Semester tab and in the heads-up under a date.</p>
+            <div id="workload-options" class="settings-options"></div>
+          </section>
+
+          <section class="settings-page" data-settings-page="canvas" aria-labelledby="settings-canvas-title" hidden>
+            <h3 id="settings-canvas-title" class="settings-page-title">Canvas calendar link</h3>
+            <p id="settings-canvas-status" class="settings-status"></p>
+            <label class="step-title" for="settings-canvas-link">Link</label>
+            <input
+              id="settings-canvas-link"
+              type="url"
+              placeholder="https://canvas.illinois.edu/feeds/calendars/…"
+              autocomplete="off"
+            />
+            <p class="step-help">Saved in this browser only. Keep it private: anyone with it can see your Canvas calendar.</p>
+            <div class="settings-actions">
+              <button id="settings-save-canvas" type="button" class="primary-button">Save link</button>
+              <button id="settings-remove-canvas" type="button" class="quiet-button">Remove link</button>
+            </div>
+            <p id="settings-canvas-message" class="form-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="settings-page" data-settings-page="google" aria-labelledby="settings-google-title" hidden>
+            <h3 id="settings-google-title" class="settings-page-title">Google Calendar</h3>
+            <p id="settings-google-status" class="settings-status"></p>
+            <p class="step-help">
+              Your events show on Due Next's calendar and update while Due Next is open. Due Next can only see them, never
+              change them, and they aren't saved to your Due Next account.
+            </p>
+            <div class="settings-actions">
+              <button id="settings-google-connect" type="button" class="primary-button">Connect Google Calendar</button>
+              <button id="settings-google-disconnect" type="button" class="quiet-button">Disconnect</button>
+            </div>
+            <button id="settings-google-unhide" type="button" class="quiet-button" hidden>Show hidden events again</button>
+            <p id="settings-google-message" class="form-message" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="settings-page" data-settings-page="account" aria-labelledby="settings-account-title" hidden>
+            <h3 id="settings-account-title" class="settings-page-title">Account</h3>
+            <p class="settings-status">
+              You're signed in as <strong id="settings-account-name"></strong>
+              <span id="settings-account-email" class="settings-account-email"></span>
+            </p>
+            <p class="step-help">Your tasks, groups, progress, and settings are saved to this account, so they show up on any computer you sign in on.</p>
+            <details id="change-password" class="option-section change-password">
+              <summary>Change password</summary>
+              <form id="change-password-form" class="option-body change-password-form" novalidate>
+                <label for="current-password">Current password</label>
+                <input id="current-password" type="password" autocomplete="current-password" />
+                <label for="new-password">New password <span class="optional">(at least 6 characters)</span></label>
+                <input id="new-password" type="password" autocomplete="new-password" />
+                <label for="new-password-again">New password again</label>
+                <input id="new-password-again" type="password" autocomplete="new-password" />
+                <p class="step-help">Afterward, other browsers where you're signed in will ask you to sign in again with the new password.</p>
+                <button id="change-password-submit" type="submit" class="primary-button">Change password</button>
+                <p id="change-password-message" class="form-message" role="status" aria-live="polite"></p>
+              </form>
+            </details>
+            <div class="settings-actions">
+              <button id="settings-sign-out" type="button" class="quiet-button">Sign out</button>
+            </div>
+            <p id="settings-account-message" class="form-message" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="add-dialog" aria-labelledby="add-dialog-title">
+      <form id="add-form" novalidate>
+        <h2 id="add-dialog-title" class="dialog-kicker">New task</h2>
+        <div id="kind-switch" class="kind-switch" role="radiogroup" aria-label="What are you adding?">
+          <button type="button" class="kind-option" data-kind="task" role="radio">
+            <span class="kind-icon" aria-hidden="true">✓</span>
+            <span class="kind-name">Task</span>
+            <span class="kind-help">Due by a time</span>
+          </button>
+          <button type="button" class="kind-option" data-kind="event" role="radio">
+            <span class="kind-icon" aria-hidden="true">📅</span>
+            <span class="kind-name">Event</span>
+            <span class="kind-help">Happens at a time</span>
+          </button>
+        </div>
+        <input
+          id="task-name"
+          class="title-input"
+          name="name"
+          type="text"
+          placeholder="Add task name"
+          aria-label="Task name"
+          autocomplete="off"
+        />
+
+        <div class="form-row">
+          <span class="row-icon" aria-hidden="true">🕒</span>
+          <div class="row-content">
+            <div class="when-line">
+              <span id="due-word" class="when-word">Due</span>
+              <input id="task-due" name="due" type="date" aria-label="Due date" />
+              <span id="task-time-label" class="visually-hidden">Time (optional)</span>
+              <div class="time-slots" id="task-time" role="group" aria-labelledby="task-time-label">
+                <input id="task-time-hour" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="11" aria-label="Hour" autocomplete="off" />
+                <span class="time-colon" aria-hidden="true">:</span>
+                <input id="task-time-minute" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="59" aria-label="Minutes" autocomplete="off" />
+                <div class="ampm" role="group" aria-label="AM or PM">
+                  <button type="button" class="ampm-button" data-period="AM">AM</button>
+                  <button type="button" class="ampm-button" data-period="PM">PM</button>
+                </div>
+              </div>
+            </div>
+            <p id="busy-week-note" class="busy-week-note" role="status" hidden></p>
+            <div id="task-time-list" class="time-list" role="listbox" aria-label="Choose a time" hidden></div>
+            <div id="event-when" class="event-when" hidden>
+              <div class="when-line">
+                <span class="when-word">From</span>
+                <div class="time-slots" id="event-start" role="group" aria-label="Start time">
+                  <input id="event-start-hour" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="3" aria-label="Start hour" autocomplete="off" />
+                  <span class="time-colon" aria-hidden="true">:</span>
+                  <input id="event-start-minute" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="00" aria-label="Start minutes" autocomplete="off" />
+                  <div class="ampm" role="group" aria-label="AM or PM">
+                    <button type="button" class="ampm-button" data-period="AM">AM</button>
+                    <button type="button" class="ampm-button" data-period="PM">PM</button>
+                  </div>
+                </div>
+                <span class="when-word">To</span>
+                <div class="time-slots" id="event-end" role="group" aria-label="End time">
+                  <input id="event-end-hour" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="4" aria-label="End hour" autocomplete="off" />
+                  <span class="time-colon" aria-hidden="true">:</span>
+                  <input id="event-end-minute" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="00" aria-label="End minutes" autocomplete="off" />
+                  <div class="ampm" role="group" aria-label="AM or PM">
+                    <button type="button" class="ampm-button" data-period="AM">AM</button>
+                    <button type="button" class="ampm-button" data-period="PM">PM</button>
+                  </div>
+                </div>
+              </div>
+              <p id="event-next-day" class="step-help" role="status" hidden>Ends the next day</p>
+              <div id="event-time-list" class="time-list" role="listbox" aria-label="Choose a time" hidden></div>
+              <label class="all-day-choice"><input id="event-all-day" type="checkbox" /> All day</label>
+            </div>
+            <div id="task-quick-picks" class="quick-picks" role="group" aria-labelledby="quick-picks-label">
+              <div class="quick-picks-head">
+                <p id="quick-picks-label" class="quick-picks-label"></p>
+                <button id="edit-quick-picks" type="button" class="link-button" aria-expanded="false">Edit</button>
+              </div>
+              <div id="quick-picks-list" class="quick-picks-list"></div>
+              <div id="quick-picks-editor" class="quick-picks-editor" hidden>
+                <p class="step-help">Your quick-pick times (up to 6):</p>
+                <div id="quick-times" class="quick-picks-list"></div>
+                <div class="quick-times-add">
+                  <select id="quick-time-choice" aria-label="Time to add"></select>
+                  <button id="add-quick-time" type="button" class="quiet-button">+ Add</button>
+                </div>
+                <p id="quick-times-message" class="form-message" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="event-location-row" class="form-row" hidden>
+          <span class="row-icon" aria-hidden="true">📍</span>
+          <div class="row-content">
+            <input
+              id="event-location"
+              class="row-input"
+              type="text"
+              placeholder="Add location (optional)"
+              aria-label="Location (optional)"
+              aria-controls="place-suggestions"
+              autocomplete="off"
+            />
+            <div id="place-suggestions" class="place-suggestions" role="listbox" aria-label="Places that match" hidden></div>
+            <p id="place-chosen" class="place-chosen" role="status" aria-live="polite" hidden></p>
+            <div id="travel-modes" class="quick-picks-list" role="radiogroup" aria-label="How you'll get there" hidden></div>
+          </div>
+        </div>
+
+        <div id="event-reminder-row" class="form-row" hidden>
+          <span class="row-icon" aria-hidden="true">🔔</span>
+          <select id="event-reminder" class="row-input" aria-label="Reminder for this event"></select>
+        </div>
+
+        <div class="form-row">
+          <span class="row-icon" aria-hidden="true">🎓</span>
+          <input
+            id="task-course"
+            class="row-input"
+            name="course"
+            type="text"
+            placeholder="Add class (optional)"
+            aria-label="Class (optional)"
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="option-sections">
+          <details id="group-section" class="option-section">
+            <summary>
+              <span class="option-icon" aria-hidden="true">🎨</span>
+              <span id="group-summary" class="option-summary"></span>
+            </summary>
+            <div class="option-body">
+              <div id="group-options" class="quick-picks-list" role="radiogroup" aria-label="Group"></div>
+              <div class="new-group">
+                <input id="new-group-name" type="text" placeholder="New group name" aria-label="New group name" autocomplete="off" />
+                <div id="new-group-colors" class="color-dots" role="radiogroup" aria-label="New group color"></div>
+                <button id="add-group" type="button" class="quiet-button">Add</button>
+              </div>
+              <p id="group-message" class="form-message" role="status" aria-live="polite"></p>
+              <div class="custom-color">
+                <span class="step-help">Make just this task stand out:</span>
+                <div id="task-color" class="color-dots" role="radiogroup" aria-label="Color for just this task"></div>
+              </div>
+            </div>
+          </details>
+          <details id="task-repeats-section" class="option-section">
+            <summary>
+              <span class="option-icon" aria-hidden="true">↻</span>
+              <span id="repeats-summary" class="option-summary"></span>
+            </summary>
+            <div class="option-body">
+              <div class="field">
+                <label for="task-repeats">How often</label>
+                <select id="task-repeats"></select>
+              </div>
+              <div id="repeat-details" class="option-body" hidden>
+                <div id="repeat-weekdays" class="quick-picks-list" role="group" aria-label="Repeat on these days"></div>
+                <div class="field">
+                  <label for="task-until">Until <span class="optional">(optional, otherwise a year)</span></label>
+                  <input id="task-until" type="date" />
+                </div>
+              </div>
+            </div>
+          </details>
+          <details id="reminders-section" class="option-section">
+            <summary>
+              <span class="option-icon" aria-hidden="true">🔔</span>
+              <span id="reminders-summary" class="option-summary"></span>
+            </summary>
+            <fieldset class="option-body reminders">
+              <legend>Remind me before it's due</legend>
+              <div id="reminder-options" class="quick-picks-list"></div>
+              <div class="field">
+                <label for="task-repeat">Repeat the reminder</label>
+                <select id="task-repeat"></select>
+              </div>
+              <button id="test-notification" type="button" class="quiet-button test-notification">
+                Send a test notification
+              </button>
+            </fieldset>
+          </details>
+        </div>
+
+        <div id="estimate-section" class="form-row">
+          <span class="row-icon" aria-hidden="true">⏱</span>
+          <div class="row-content">
+            <select id="estimate-select" class="row-input estimate-select" aria-label="How long will it take?"></select>
+            <p id="estimate-start" class="estimate-start" hidden></p>
+          </div>
+        </div>
+        <p id="form-message" class="form-message" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="focus-from-edit" type="button" class="quiet-button focus-from-edit" hidden>🔒 Lock in on this</button>
+          <button id="delete-event" type="button" class="quiet-button delete-event" hidden>Delete event</button>
+          <button id="cancel-add" type="button" class="quiet-button">Cancel</button>
+          <button id="add-submit" type="submit" class="primary-button">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="duplicate-dialog" aria-labelledby="duplicate-title">
+      <p class="dialog-kicker">Already in Due Next?</p>
+      <h2 id="duplicate-title" class="duplicate-text"></h2>
+      <div class="dialog-actions">
+        <button id="duplicate-open" type="button" class="quiet-button">Open the one I have</button>
+        <button id="duplicate-cancel" type="button" class="quiet-button">Cancel</button>
+        <button id="duplicate-add" type="button" class="primary-button">Add anyway</button>
+      </div>
+    </dialog>
+
+    <dialog id="google-event-dialog" aria-labelledby="google-event-title">
+      <p class="dialog-kicker">From Google Calendar</p>
+      <h2 id="google-event-title" class="google-event-title"></h2>
+      <p id="google-event-when" class="google-event-when"></p>
+      <p id="google-event-moved" class="google-event-moved" hidden></p>
+      <p class="step-help">
+        Drag it on the calendar to move it, or pull its bottom edge to change when it ends. Changes here only affect
+        Due Next; your Google Calendar stays the same.
+      </p>
+      <div class="dialog-actions">
+        <button id="google-event-hide" type="button" class="quiet-button delete-event">Hide in Due Next</button>
+        <button id="google-event-reset" type="button" class="quiet-button" hidden>Put back to Google's time</button>
+        <button id="google-event-done" type="button" class="primary-button">Done</button>
+      </div>
+    </dialog>
+
+    <dialog id="missed-dialog" aria-labelledby="missed-title">
+      <form id="missed-form" class="missed-body" novalidate>
+        <p id="missed-progress" class="missed-progress"></p>
+        <h2 id="missed-title"></h2>
+        <p id="missed-details" class="missed-details"></p>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="missed-due">New date</label>
+            <input id="missed-due" type="date" />
+          </div>
+          <div class="field">
+            <label id="missed-time-label" for="missed-time-hour">Time <span class="optional">(optional)</span></label>
+            <div class="time-slots" id="missed-time" role="group" aria-labelledby="missed-time-label">
+              <input id="missed-time-hour" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="9" aria-label="Hour" autocomplete="off" />
+              <span class="time-colon" aria-hidden="true">:</span>
+              <input id="missed-time-minute" class="time-slot" type="text" inputmode="numeric" maxlength="2" placeholder="00" aria-label="Minutes" autocomplete="off" />
+              <div class="ampm" role="group" aria-label="AM or PM">
+                <button type="button" class="ampm-button" data-period="AM">AM</button>
+                <button type="button" class="ampm-button" data-period="PM">PM</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-picks" role="group" aria-labelledby="missed-picks-label">
+          <p id="missed-picks-label" class="quick-picks-label">Quick picks</p>
+          <div id="missed-picks" class="quick-picks-list"></div>
+        </div>
+
+        <p id="missed-message" class="form-message" role="status" aria-live="polite"></p>
+
+        <div class="missed-actions">
+          <button type="submit" class="missed-action missed-move">Move to this time</button>
+          <button id="missed-done" type="button" class="missed-action">
+            <span class="action-icon done-icon" aria-hidden="true">✓</span> Mark as done
+          </button>
+          <button id="missed-drop" type="button" class="missed-action">
+            <span class="action-icon delete-icon" aria-hidden="true">×</span> Delete task
+          </button>
+          <button id="missed-later" type="button" class="missed-action">Ask me later</button>
+          <button id="missed-all-done" type="button" class="missed-action missed-all">✓ Mark all as done</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

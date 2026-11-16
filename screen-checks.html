@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Due Next Screen Checks</title>
+    <style>
+      body {
+        font: 16px/1.5 system-ui, sans-serif;
+        margin: 24px 16px;
+      }
+      .pass {
+        color: #2e7d32;
+      }
+      .fail {
+        color: #b3261e;
+      }
+      iframe {
+        width: 1200px;
+        max-width: 100%;
+        height: 900px;
+        border: 1px solid #ccc;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Due Next screen checks</h1>
+    <p>
+      These open Due Next below with pretend tasks kept in memory (no account, nothing saved), then drag, click,
+      and time things the way a person would. They take about 20 seconds.
+    </p>
+    <p id="summary">Running…</p>
+    <ul id="results"></ul>
+    <iframe id="app" title="Due Next on pretend data"></iframe>
+    <script type="module">
+      import { addDays, createEvent, createTask, EVENTS_KEY, startOfWeek, STORAGE_KEY, toDateKey } from "./tasks.js";
+
+      // The pretend data: one task and one event next Wednesday, so nothing is ever in the past.
+      const today = toDateKey(new Date());
+      const wednesday = addDays(startOfWeek(today), 10);
+      const thursday = addDays(wednesday, 1);
+      const task = createTask({ name: "Check task", course: "", due: wednesday, time: "14:00" });
+      const event = createEvent({ name: "Check event", date: wednesday, start: "10:00", end: "11:00" });
+      window.screenCheckData = () => ({
+        [STORAGE_KEY]: JSON.stringify([task]),
+        [EVENTS_KEY]: JSON.stringify([event]),
+        "due-view": JSON.stringify({ view: "week", dayLayout: "timeline" }),
+        "due-morning-shown": today,
+        "due-chat-greeting-seen": "true",
+      });
+
+      const frame = document.getElementById("app");
+      const page = () => frame.contentDocument;
+      const saved = (key) => JSON.parse(frame.contentWindow.localStorage.getItem(key));
+      const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      function assertEqual(actual, expected) {
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          throw new Error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+        }
+      }
+
+      async function waitFor(find, what, ms = 5000) {
+        const until = Date.now() + ms;
+        while (Date.now() < until) {
+          const found = find();
+          if (found) return found;
+          await pause(50);
+        }
+        throw new Error(`never saw ${what}`);
+      }
+
+      function pointer(type, target, x, y) {
+        const { PointerEvent } = frame.contentWindow;
+        const buttons = type === "pointerup" ? 0 : 1;
+        target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0, buttons, isPrimary: true }));
+      }
+
+      // Presses on `from` at a point, moves in small steps to another point, and lets go.
+      async function drag(from, [x1, y1], [x2, y2]) {
+        const grid = page().querySelector(".week-inner");
+        pointer("pointerdown", from, x1, y1);
+        for (let step = 1; step <= 6; step++) {
+          pointer("pointermove", grid, x1 + ((x2 - x1) * step) / 6, y1 + ((y2 - y1) * step) / 6);
+          await pause(16);
+        }
+        pointer("pointerup", grid, x2, y2);
+        await pause(100);
+      }
+
+      // The middle of a day's column, and the top of an hour's row, on screen.
+      const dayX = (dateKey) => {
+        const heads = [...page().querySelectorAll(".week-day-head")];
+        // Weeks start on Sunday, so a day's column is its weekday number.
+        const { left, width } = heads[new Date(`${dateKey}T00:00:00`).getDay()].getBoundingClientRect();
+        return left + width / 2;
+      };
+      const hourY = (hour) => page().querySelector(`.week-inner [data-hour="${hour}"]`).getBoundingClientRect().top;
+      const scrollToHour = (hour) => page().querySelector(`.week-inner [data-hour="${hour}"]`).scrollIntoView({ block: "start" });
+      const eventBlock = () => [...page().querySelectorAll(".due-event")].find((block) => block.textContent.includes("Check event"));
+      const taskBlock = () => [...page().querySelectorAll(".week-task")].find((block) => block.textContent.includes("Check task"));
+      const toast = () => page().getElementById("toast");
+
+      const checks = [];
+      const check = (name, body) => checks.push({ name, body });
+
+      check("Week shows the pretend task and event next week", async () => {
+        frame.src = "index.html?screen-check";
+        await waitFor(() => page()?.querySelector(".week-inner"), "the week grid");
+        page().getElementById("next-period").click();
+        await waitFor(eventBlock, "Check event");
+        await waitFor(taskBlock, "Check task");
+      });
+
+      check("Dragging an event drops it on the hour it's let go on", async () => {
+        scrollToHour(9);
+        const block = eventBlock();
+        const x = dayX(wednesday);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(13) + 4]);
+        const moved = saved(EVENTS_KEY)[0];
+        assertEqual([moved.date, moved.start, moved.end], [wednesday, "13:00", "14:00"]);
+        if (!toast().textContent.startsWith("Moved “Check event”")) throw new Error(`message said “${toast().textContent}”`);
+      });
+
+      check("Undo puts the event back", async () => {
+        toast().querySelector(".toast-undo").click();
+        await pause(100);
+        const back = saved(EVENTS_KEY)[0];
+        assertEqual([back.start, back.end], ["10:00", "11:00"]);
+      });
+
+      check("Pulling an event's bottom edge changes when it ends", async () => {
+        scrollToHour(9);
+        const handle = eventBlock().querySelector(".resize-handle");
+        const x = dayX(wednesday);
+        await drag(handle, [x, handle.getBoundingClientRect().top + 2], [x, hourY(12) + 2]);
+        const stretched = saved(EVENTS_KEY)[0];
+        assertEqual([stretched.start, stretched.end], ["10:00", "12:00"]);
+      });
+
+      check("Dragging a task changes when it's due", async () => {
+        scrollToHour(13);
+        const block = taskBlock();
+        const x = dayX(wednesday);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(16) + 4]);
+        const moved = saved(STORAGE_KEY)[0];
+        assertEqual([moved.due, moved.time], [wednesday, "16:00"]);
+      });
+
+      check("Dragging across empty time opens New event with those times", async () => {
+        scrollToHour(8);
+        const x = dayX(thursday);
+        // The empty square for Thursday at 9 AM: the row starts with its hour label, then Sunday.
+        const cell = page().querySelector(`.week-inner [data-hour="9"]`).children[new Date(`${thursday}T00:00:00`).getDay() + 1];
+        await drag(cell, [x, hourY(9) + 2], [x, hourY(10) + 32]);
+        const dialog = page().getElementById("add-dialog");
+        assertEqual(dialog.open, true);
+        const value = (id) => page().getElementById(id).value;
+        assertEqual(
+          [page().getElementById("add-dialog-title").textContent, value("event-start-hour"), value("event-start-minute"), value("event-end-hour"), value("event-end-minute")],
+          ["New event", "9", "00", "10", "30"],
+        );
+        dialog.close();
+      });
+
+      check("A plain click on a task still opens it", async () => {
+        taskBlock().querySelector(".chip-open").click();
+        const dialog = page().getElementById("add-dialog");
+        assertEqual([dialog.open, page().getElementById("add-dialog-title").textContent], [true, "Change task"]);
+        dialog.close();
+      });
+
+      check("A message with Undo stays up for 10 seconds", async () => {
+        scrollToHour(13);
+        const block = taskBlock();
+        const x = dayX(wednesday);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(17) + 4]);
+        const shownAt = Date.now();
+        await waitFor(() => !toast().classList.contains("visible"), "the message close", 15000);
+        const seconds = (Date.now() - shownAt) / 1000;
+        if (seconds < 9.5 || seconds > 10.6) throw new Error(`it stayed up ${seconds.toFixed(1)} seconds`);
+      });
+
+      const results = document.getElementById("results");
+      let failures = 0;
+      for (const { name, body } of checks) {
+        const item = document.createElement("li");
+        try {
+          await body();
+          item.className = "pass";
+          item.textContent = `✓ ${name}`;
+        } catch (error) {
+          failures++;
+          item.className = "fail";
+          item.textContent = `✗ ${name}: ${error.message}`;
+        }
+        results.append(item);
+      }
+      const summary = document.getElementById("summary");
+      summary.textContent = failures ? `${failures} of ${checks.length} checks failed.` : `All ${checks.length} checks passed.`;
+      summary.className = failures ? "fail" : "pass";
+    </script>
+  </body>
+</html>
