@@ -312,7 +312,7 @@ function eventStartMoment(event) {
 export function eventReminderDue(event, defaultId, from, to) {
   const { minutes } = eventReminderOption(event, defaultId);
   if (minutes === null) return false;
-  const moment = eventStartMoment(event) - minutes * 60_000;
+  const moment = reminderMoment(eventStartMoment(event), minutes);
   return moment > from && moment <= to;
 }
 
@@ -592,10 +592,45 @@ export function parseCanvasCalendar(text) {
       fields = null;
     } else if (fields) {
       const colon = line.indexOf(":");
-      if (colon > 0) fields[line.slice(0, colon).split(";")[0]] = line.slice(colon + 1);
+      if (colon > 0) {
+        // "DTSTART;TZID=America/Los_Angeles:20261203T090000": the time zone rides along as a parameter.
+        const [key, ...params] = line.slice(0, colon).split(";");
+        fields[key] = line.slice(colon + 1);
+        const zone = params.find((param) => param.startsWith("TZID="));
+        if (zone) fields[`${key}_TZID`] = zone.slice(5).replace(/^"|"$/g, "");
+      }
     }
   }
   return events;
+}
+
+// The moment a clock time in a named time zone happens, like 9 AM on Dec 3 in "America/Los_Angeles".
+// It asks the browser how far that zone is from UTC at that time (which changes with daylight
+// saving), checking twice in case the first guess lands on the other side of a clock change.
+// Returns null for a zone the browser doesn't know, so the time is read as local instead.
+function zonedMoment([year, month, day, hours, minutes, seconds], timeZone) {
+  let format;
+  try {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+  } catch {
+    return null;
+  }
+  const offsetAt = (moment) => {
+    const parts = Object.fromEntries(format.formatToParts(new Date(moment)).map((part) => [part.type, Number(part.value)]));
+    return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - moment;
+  };
+  const wallClock = Date.UTC(year, month - 1, day, hours, minutes, seconds);
+  const firstGuess = wallClock - offsetAt(wallClock);
+  return new Date(wallClock - offsetAt(firstGuess));
 }
 
 function canvasEvent(fields) {
@@ -614,7 +649,8 @@ function canvasEvent(fields) {
     } else {
       const moment = utc
         ? new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds))
-        : new Date(year, month - 1, day, hours, minutes, seconds);
+        : (fields.DTSTART_TZID && zonedMoment([year, month, day, hours, minutes, seconds].map(Number), fields.DTSTART_TZID)) ||
+          new Date(year, month - 1, day, hours, minutes, seconds);
       due = toDateKey(moment);
       time = toTimeKey(moment);
     }
@@ -1494,12 +1530,23 @@ export function dueMoment(task) {
   return new Date(`${task.due}T${task.time || "23:59"}:00`);
 }
 
+// When a reminder goes off. "1 day before" or "1 week before" means the same clock time that many
+// days earlier, even when clocks change for daylight saving in between; shorter ones ("3 hours
+// before") are real hours.
+function reminderMoment(moment, minutes) {
+  const dayMinutes = 24 * 60;
+  if (minutes % dayMinutes !== 0) return moment - minutes * 60_000;
+  const date = new Date(moment);
+  date.setDate(date.getDate() - minutes / dayMinutes);
+  return date.getTime();
+}
+
 // Reminder moments (in ms) for a task that fall after `from` and at or before `to`, oldest first.
 // Finished tasks and moments at or after the due time never remind.
 export function remindersBetween(task, from, to) {
   if (task.done) return [];
   const due = dueMoment(task).getTime();
-  const moments = (task.reminders ?? []).map((minutes) => due - minutes * 60_000);
+  const moments = (task.reminders ?? []).map((minutes) => reminderMoment(due, minutes));
 
   if (task.repeat === "daily") {
     for (let day = toDateKey(new Date(from)); day <= toDateKey(new Date(to)); day = addDays(day, 1)) {

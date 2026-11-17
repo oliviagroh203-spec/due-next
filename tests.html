@@ -118,6 +118,7 @@
         timeToLeave,
         travelModeOf,
         weekDays,
+        addDays,
         SYNCED_KEYS,
         syncedData,
         signInError,
@@ -361,6 +362,86 @@
         assertEqual(passwordChangeError({ ...change, next: "abc", again: "abc" }), "Use at least 6 characters for your new password.");
         assertEqual(passwordChangeError({ ...change, again: "newpass2" }), "The new passwords don't match.");
         assertEqual(passwordChangeError({ ...change, next: "oldpass1", again: "oldpass1" }), "That's the same as your current password. Pick a new one.");
+      });
+
+      // Dates, time zones, and daylight saving. In the US, clocks fell back on Nov 1, 2026 and sprang
+      // forward on Mar 8, 2026. Each check is about clock times ("9 AM the day before"), so it means the
+      // same thing in any time zone and catches mistakes wherever clocks change.
+      const clock = (y, m, d, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
+
+      test("counting days, weeks, and Sundays works across daylight saving changes", () => {
+        assertEqual([addDays("2026-10-31", 1), addDays("2026-11-01", 1), addDays("2026-03-07", 2), addDays("2026-11-08", -7)], [
+          "2026-11-01", "2026-11-02", "2026-03-09", "2026-11-01",
+        ]);
+        assertEqual([startOfWeek("2026-11-07"), startOfWeek("2026-03-14"), startOfWeek("2026-11-01")], ["2026-11-01", "2026-03-08", "2026-11-01"]);
+        assertEqual(weekDays("2026-03-08"), ["2026-03-08", "2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13", "2026-03-14"]);
+        assertEqual(monthGrid("2026-11-15").length, 35);
+      });
+
+      test("repeats land on the right days across daylight saving changes", () => {
+        assertEqual(repeatDates("2026-10-26", { repeats: "weekly", until: "2026-11-16" }), ["2026-10-26", "2026-11-02", "2026-11-09", "2026-11-16"]);
+        assertEqual(repeatDates("2026-03-07", { repeats: "daily", until: "2026-03-10" }), ["2026-03-07", "2026-03-08", "2026-03-09", "2026-03-10"]);
+        assertEqual(repeatDates("2026-10-31", { repeats: "monthly", until: "2027-03-31" }), ["2026-10-31", "2026-12-31", "2027-01-31", "2027-03-31"]);
+      });
+
+      test("a reminder days before keeps its clock time across daylight saving changes", () => {
+        const fallBack = { ...task("Essay", "2026-11-02", false, "09:00"), reminders: [24 * 60, 2 * 24 * 60] };
+        assertEqual(remindersBetween(fallBack, clock(2026, 10, 30), clock(2026, 11, 2)), [clock(2026, 10, 31, 9), clock(2026, 11, 1, 9)]);
+        const springForward = { ...task("Quiz", "2026-03-10", false, "09:00"), reminders: [7 * 24 * 60] };
+        assertEqual(remindersBetween(springForward, clock(2026, 3, 1), clock(2026, 3, 10)), [clock(2026, 3, 3, 9)]);
+        // Hours before stay real hours: 3 hours before 9 AM is 6 AM.
+        const hours = { ...task("Lab", "2026-11-01", false, "09:00"), reminders: [3 * 60] };
+        assertEqual(remindersBetween(hours, clock(2026, 11, 1), clock(2026, 11, 1, 9)), [clock(2026, 11, 1, 9) - 3 * 3_600_000]);
+        // The daily repeat is 9 AM every day, including the day clocks change.
+        const daily = { ...task("Reading", "2026-11-03", false, "17:00"), repeat: "daily" };
+        assertEqual(remindersBetween(daily, clock(2026, 10, 31, 12), clock(2026, 11, 2, 12)), [clock(2026, 11, 1, 9), clock(2026, 11, 2, 9)]);
+      });
+
+      test("an event reminder a day before keeps its clock time across daylight saving changes", () => {
+        // Clocks fall back overnight before Nov 1, so 1 day before 3 PM Nov 1 is 3 PM Oct 31, not 4 PM.
+        const event = createEvent({ name: "Club", date: "2026-11-01", start: "15:00", end: "16:00", reminder: "1440" });
+        assertEqual(eventReminderDue(event, "30", clock(2026, 10, 31, 14, 59), clock(2026, 10, 31, 15)), true);
+        const allDay = createEvent({ name: "Trip", date: "2026-03-08", start: "", end: "", reminder: "0" });
+        assertEqual(eventReminderDue(allDay, "30", clock(2026, 3, 8, 8, 59), clock(2026, 3, 8, 9)), true);
+      });
+
+      test("Google events in other time zones show at your local time, and ones over the clock change split by day", () => {
+        const pacific = { id: "p", summary: "Call", start: { dateTime: "2026-11-10T09:00:00-08:00" }, end: { dateTime: "2026-11-10T10:00:00-08:00" } };
+        const expected = new Date("2026-11-10T09:00:00-08:00");
+        assertEqual(googleEventDays(pacific)[0].start, toTimeKey(expected));
+        const overnight = {
+          id: "o", summary: "Hackathon",
+          start: { dateTime: new Date(2026, 9, 31, 22).toISOString() }, end: { dateTime: new Date(2026, 10, 1, 3).toISOString() },
+        };
+        assertEqual(googleEventDays(overnight).map((day) => [day.date, day.start, day.end]), [["2026-10-31", "22:00", "23:59"], ["2026-11-01", "00:00", "03:00"]]);
+        const allDay = { id: "a", summary: "Break", start: { date: "2026-10-31" }, end: { date: "2026-11-03" } };
+        assertEqual(googleEventDays(allDay).map((day) => [day.date, day.start]), [["2026-10-31", ""], ["2026-11-01", ""], ["2026-11-02", ""]]);
+      });
+
+      test("calendar files read all-day dates, UTC times, and times in a named time zone", () => {
+        const file = (dtstart) => `BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:x\nSUMMARY:Exam\n${dtstart}\nEND:VEVENT\nEND:VCALENDAR`;
+        const [allDay] = parseCanvasCalendar(file("DTSTART;VALUE=DATE:20261101"));
+        assertEqual([allDay.due, allDay.time], ["2026-11-01", ""]);
+        const [utc] = parseCanvasCalendar(file("DTSTART:20261203T170000Z"));
+        const utcMoment = new Date(Date.UTC(2026, 11, 3, 17));
+        assertEqual([utc.due, utc.time], [toDateKey(utcMoment), toTimeKey(utcMoment)]);
+        // 9 AM in Los Angeles on Dec 3 is 17:00 UTC (Pacific Standard Time is 8 hours behind).
+        const [named] = parseCanvasCalendar(file("DTSTART;TZID=America/Los_Angeles:20261203T090000"));
+        assertEqual([named.due, named.time], [toDateKey(utcMoment), toTimeKey(utcMoment)]);
+        // And in summer, Los Angeles is 7 hours behind UTC.
+        const [summer] = parseCanvasCalendar(file("DTSTART;TZID=America/Los_Angeles:20260715T090000"));
+        const summerMoment = new Date(Date.UTC(2026, 6, 15, 16));
+        assertEqual([summer.due, summer.time], [toDateKey(summerMoment), toTimeKey(summerMoment)]);
+        // A zone name the browser doesn't know (some calendar apps write "Eastern Standard Time") is read as local time.
+        const [unknown] = parseCanvasCalendar(file("DTSTART;TZID=Eastern Standard Time:20261203T090000"));
+        assertEqual([unknown.due, unknown.time], ["2026-12-03", "09:00"]);
+      });
+
+      test("start dates and semester weeks count days correctly across daylight saving changes", () => {
+        assertEqual(startByDate({ due: "2026-11-03", estimateMinutes: 240 }), "2026-11-01");
+        assertEqual(startByDate({ due: "2026-03-09", estimateMinutes: 300 }), "2026-03-06");
+        const weeks = semesterWeeks([task("HW", "2026-11-05")], "2026-10-29");
+        assertEqual([weeks[0].start, weeks[1].start, weeks[1].assignments.length, weeks[1].days.map((day) => day.date)[0]], ["2026-10-25", "2026-11-01", 1, "2026-11-01"]);
       });
 
       test("a week starts on Sunday, even when today is Saturday", () => {
