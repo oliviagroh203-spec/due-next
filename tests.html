@@ -105,6 +105,7 @@
         saveEvents,
         validateEvent,
         passwordChangeError,
+        passwordStrengthError,
         findDuplicateTask,
         findDuplicateEvent,
         semesterWeeks,
@@ -356,12 +357,23 @@
       });
 
       test("changing a password needs the current one and a new one typed the same twice", () => {
-        const change = { current: "oldpass1", next: "newpass1", again: "newpass1" };
+        const change = { current: "Oldpass1!", next: "Newpass1!", again: "Newpass1!" };
         assertEqual(passwordChangeError(change), "");
         assertEqual(passwordChangeError({ ...change, current: "" }), "Type your current password.");
-        assertEqual(passwordChangeError({ ...change, next: "abc", again: "abc" }), "Use at least 6 characters for your new password.");
-        assertEqual(passwordChangeError({ ...change, again: "newpass2" }), "The new passwords don't match.");
-        assertEqual(passwordChangeError({ ...change, next: "oldpass1", again: "oldpass1" }), "That's the same as your current password. Pick a new one.");
+        assertEqual(passwordChangeError({ ...change, next: "newpass1!", again: "newpass1!" }), "Your password also needs an uppercase letter.");
+        assertEqual(passwordChangeError({ ...change, again: "Newpass2!" }), "The new passwords don't match.");
+        assertEqual(passwordChangeError({ ...change, next: "Oldpass1!", again: "Oldpass1!" }), "That's the same as your current password. Pick a new one.");
+      });
+
+      test("a new password needs an uppercase letter, a number, and a symbol", () => {
+        assertEqual(passwordStrengthError("Secret1!"), "");
+        assertEqual(passwordStrengthError("Ab1!"), "Use at least 6 characters for your password, with an uppercase letter, a number, and a symbol.");
+        assertEqual(passwordStrengthError("secret1!"), "Your password also needs an uppercase letter.");
+        assertEqual(passwordStrengthError("Secret!!"), "Your password also needs a number.");
+        assertEqual(passwordStrengthError("Secret11"), "Your password also needs a symbol like ! or #.");
+        assertEqual(passwordStrengthError("secretpass"), "Your password also needs an uppercase letter, a number, and a symbol like ! or #.");
+        assertEqual(passwordStrengthError("My pass 1"), "");
+        assertEqual(signInError({ login: "olivia_g", password: "oldweak" }), "");
       });
 
       // Dates, time zones, and daylight saving. In the US, clocks fell back on Nov 1, 2026 and sprang
@@ -1375,19 +1387,20 @@
       });
 
       test("the sign-in form needs a username or email and a password", () => {
-        assertEqual(signInError({ login: " ", password: "secret1" }), "Type your username or email.");
+        assertEqual(signInError({ login: " ", password: "Secret1!" }), "Type your username or email.");
         assertEqual(signInError({ login: "olivia", password: "" }), "Type your password.");
-        assertEqual(signInError({ login: "olivia", password: "secret1" }), "");
-        assertEqual(signInError({ login: "o@x.com", password: "secret1" }), "");
+        assertEqual(signInError({ login: "olivia", password: "Secret1!" }), "");
+        assertEqual(signInError({ login: "o@x.com", password: "Secret1!" }), "");
       });
 
       test("creating an account checks the username and password first", () => {
-        assertEqual(newLoginError({ username: "", password: "secret1" }), "Pick a username.");
-        assertEqual(newLoginError({ username: "o@x.com", password: "secret1" }), "Usernames can only use letters, numbers, and _.");
-        assertEqual(newLoginError({ username: "liv groh", password: "secret1" }), "Usernames can only use letters, numbers, and _.");
-        assertEqual(newLoginError({ username: "ol", password: "secret1" }), "Use 3 to 20 characters for your username.");
-        assertEqual(newLoginError({ username: "olivia_g", password: "abc" }), "Use at least 6 characters for your password.");
-        assertEqual(newLoginError({ username: " Olivia_G ", password: "abcdef" }), "");
+        assertEqual(newLoginError({ username: "", password: "Secret1!" }), "Pick a username.");
+        assertEqual(newLoginError({ username: "o@x.com", password: "Secret1!" }), "Usernames can only use letters, numbers, and _.");
+        assertEqual(newLoginError({ username: "liv groh", password: "Secret1!" }), "Usernames can only use letters, numbers, and _.");
+        assertEqual(newLoginError({ username: "ol", password: "Secret1!" }), "Use 3 to 20 characters for your username.");
+        assertEqual(newLoginError({ username: "olivia_g", password: "abc" }), "Use at least 6 characters for your password, with an uppercase letter, a number, and a symbol.");
+        assertEqual(newLoginError({ username: "olivia_g", password: "Abcdef1" }), "Your password also needs a symbol like ! or #.");
+        assertEqual(newLoginError({ username: " Olivia_G ", password: "Abcde1!" }), "");
         assertEqual(normalizeUsername(" Olivia_G "), "olivia_g");
       });
 

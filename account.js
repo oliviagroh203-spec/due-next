@@ -76,6 +76,12 @@ export async function changePassword(current, next) {
   await auth.updatePassword(currentUser, next);
 }
 
+// For Settings → Change password when the current one is forgotten: emails a reset link to this account.
+export async function sendPasswordResetToMe() {
+  const { auth } = firebase;
+  await auth.sendPasswordResetEmail(auth.instance, currentUser.email);
+}
+
 // Saves any change still waiting, signs out, and clears this browser so the next person starts fresh.
 export async function signOutOfDueNext() {
   clearTimeout(uploadTimer);

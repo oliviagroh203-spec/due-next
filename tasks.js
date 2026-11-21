@@ -1868,18 +1868,29 @@ export function signInError({ login, password }) {
   return "";
 }
 
+// What a new password still needs, or "" if it's strong enough. Signing in never checks this, so
+// passwords made before these rules keep working.
+export function passwordStrengthError(password) {
+  const missing = [];
+  if (!/[A-Z]/.test(password)) missing.push("an uppercase letter");
+  if (!/[0-9]/.test(password)) missing.push("a number");
+  if (!/[^A-Za-z0-9]/.test(password)) missing.push("a symbol like ! or #");
+  if (password.length < 6) return "Use at least 6 characters for your password, with an uppercase letter, a number, and a symbol.";
+  if (missing.length === 0) return "";
+  const list = missing.length < 3 ? missing.join(" and ") : `${missing.slice(0, -1).join(", ")}, and ${missing.at(-1)}`;
+  return `Your password also needs ${list}.`;
+}
+
 // Step 1 of creating an account: the username and password.
 export function newLoginError({ username, password }) {
-  const problem = usernameError(username);
-  if (problem) return problem;
-  if (password.length < 6) return "Use at least 6 characters for your password.";
-  return "";
+  return usernameError(username) || passwordStrengthError(password);
 }
 
 // Changing your password in Settings → Account: what's wrong with what was typed, or "" if it's fine.
 export function passwordChangeError({ current, next, again }) {
   if (!current) return "Type your current password.";
-  if (next.length < 6) return "Use at least 6 characters for your new password.";
+  const weak = passwordStrengthError(next);
+  if (weak) return weak;
   if (next !== again) return "The new passwords don't match.";
   if (next === current) return "That's the same as your current password. Pick a new one.";
   return "";

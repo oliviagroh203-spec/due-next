@@ -1,4 +1,4 @@
-import { changePassword, currentAccountEmail, currentAccountName, signOutOfDueNext } from "./account.js";
+import { changePassword, currentAccountEmail, currentAccountName, sendPasswordResetToMe, signOutOfDueNext } from "./account.js";
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
@@ -4828,6 +4828,22 @@ const signOutButton = document.getElementById("settings-sign-out");
 const changePasswordForm = document.getElementById("change-password-form");
 const changePasswordMessage = document.getElementById("change-password-message");
 const changePasswordSubmit = document.getElementById("change-password-submit");
+
+document.getElementById("change-password-forgot").addEventListener("click", async (event) => {
+  const forgotButton = event.currentTarget;
+  forgotButton.disabled = true;
+  changePasswordMessage.classList.add("is-info");
+  changePasswordMessage.textContent = "Sending…";
+  try {
+    await sendPasswordResetToMe();
+    changePasswordMessage.textContent = `A link to reset your password is on its way to ${currentAccountEmail()}. If you don't see it, check spam.`;
+  } catch (error) {
+    changePasswordMessage.classList.remove("is-info");
+    changePasswordMessage.textContent = authErrorMessage(error.code);
+  } finally {
+    forgotButton.disabled = false;
+  }
+});
 
 changePasswordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
