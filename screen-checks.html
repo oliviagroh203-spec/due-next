@@ -76,15 +76,27 @@
         target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0, buttons, isPrimary: true }));
       }
 
-      // Presses on `from` at a point, moves in small steps to another point, and lets go.
-      async function drag(from, [x1, y1], [x2, y2]) {
+      // Presses on `from` at a point, moves in small steps toward `target`, and lets go. `target` is
+      // measured again at every step, like a hand following the screen, so the calendar scrolling
+      // partway through (a trackpad brushed during the run) doesn't move where it lets go.
+      async function drag(from, [x1, y1], target) {
         const grid = page().querySelector(".week-inner");
+        const shift = () => grid.getBoundingClientRect().top;
+        const startShift = shift();
         pointer("pointerdown", from, x1, y1);
+        let x = x1;
+        let y = y1;
         for (let step = 1; step <= 6; step++) {
-          pointer("pointermove", grid, x1 + ((x2 - x1) * step) / 6, y1 + ((y2 - y1) * step) / 6);
+          const [x2, y2] = target();
+          // The start point scrolls along with the calendar, too.
+          const startY = y1 + shift() - startShift;
+          x = x1 + ((x2 - x1) * step) / 6;
+          y = startY + ((y2 - startY) * step) / 6;
+          pointer("pointermove", grid, x, y);
           await pause(16);
         }
-        pointer("pointerup", grid, x2, y2);
+        [x, y] = target();
+        pointer("pointerup", grid, x, y);
         await pause(100);
       }
 
@@ -116,7 +128,7 @@
         scrollToHour(9);
         const block = eventBlock();
         const x = dayX(wednesday);
-        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(13) + 4]);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], () => [dayX(wednesday), hourY(13) + 4]);
         const moved = saved(EVENTS_KEY)[0];
         assertEqual([moved.date, moved.start, moved.end], [wednesday, "13:00", "14:00"]);
         if (!toast().textContent.startsWith("Moved “Check event”")) throw new Error(`message said “${toast().textContent}”`);
@@ -133,7 +145,7 @@
         scrollToHour(9);
         const handle = eventBlock().querySelector(".resize-handle");
         const x = dayX(wednesday);
-        await drag(handle, [x, handle.getBoundingClientRect().top + 2], [x, hourY(12) + 2]);
+        await drag(handle, [x, handle.getBoundingClientRect().top + 2], () => [dayX(wednesday), hourY(12) + 2]);
         const stretched = saved(EVENTS_KEY)[0];
         assertEqual([stretched.start, stretched.end], ["10:00", "12:00"]);
       });
@@ -142,7 +154,7 @@
         scrollToHour(13);
         const block = taskBlock();
         const x = dayX(wednesday);
-        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(16) + 4]);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], () => [dayX(wednesday), hourY(16) + 4]);
         const moved = saved(STORAGE_KEY)[0];
         assertEqual([moved.due, moved.time], [wednesday, "16:00"]);
       });
@@ -152,7 +164,7 @@
         const x = dayX(thursday);
         // The empty square for Thursday at 9 AM: the row starts with its hour label, then Sunday.
         const cell = page().querySelector(`.week-inner [data-hour="9"]`).children[new Date(`${thursday}T00:00:00`).getDay() + 1];
-        await drag(cell, [x, hourY(9) + 2], [x, hourY(10) + 32]);
+        await drag(cell, [x, hourY(9) + 2], () => [dayX(thursday), hourY(10) + 32]);
         const dialog = page().getElementById("add-dialog");
         assertEqual(dialog.open, true);
         const value = (id) => page().getElementById(id).value;
@@ -174,7 +186,7 @@
         scrollToHour(13);
         const block = taskBlock();
         const x = dayX(wednesday);
-        await drag(block, [x, block.getBoundingClientRect().top + 4], [x, hourY(17) + 4]);
+        await drag(block, [x, block.getBoundingClientRect().top + 4], () => [dayX(wednesday), hourY(17) + 4]);
         const shownAt = Date.now();
         await waitFor(() => !toast().classList.contains("visible"), "the message close", 15000);
         const seconds = (Date.now() - shownAt) / 1000;
