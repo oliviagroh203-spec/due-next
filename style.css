@@ -1,6 +1,11 @@
 :root {
   /* Buttons, menus, and the search box: softly squared corners, not pills. */
   --button-radius: 8px;
+  /* Due Next's look: a soft, characterful serif for headings over clean, easy text, and cards that
+     float slightly off the page. Calm, but its own. */
+  --heading-font: "Fraunces", Georgia, "Times New Roman", serif;
+  --card-shadow: 0 1px 2px rgb(40 20 40 / 0.04), 0 8px 24px rgb(40 20 40 / 0.06);
+  --lift-shadow: 0 2px 4px rgb(40 20 40 / 0.06), 0 10px 24px rgb(40 20 40 / 0.1);
 }
 
 :root,
@@ -104,89 +109,89 @@
    dark mode (Settings → Look → Dark mode). */
 html[data-dark="on"]:not([data-theme]),
 html[data-dark="on"][data-theme="pastel"] {
-  --bg: #1c1820;
-  --surface: #241f29;
-  --subtle: #2d2733;
+  --bg: #2c2830;
+  --surface: #36313a;
+  --subtle: #3e3843;
   --text: #f3edf5;
-  --muted: #a397ab;
-  --line: #3a3140;
+  --muted: #b7aebd;
+  --line: #4c4451;
   --accent: #f2a7c0;
   --accent-text: #1c1820;
   --overdue: #ff8fa3;
-  --today-tint: #2b2131;
+  --today-tint: #3c3341;
   --on-edge: #1c1820;
 
-  --c0-fill: #3a2430;
+  --c0-fill: #48333e;
   --c0-edge: #f2a7c0;
-  --c1-fill: #1f3329;
+  --c1-fill: #2f4138;
   --c1-edge: #8fd9b2;
-  --c2-fill: #3a2a22;
+  --c2-fill: #483931;
   --c2-edge: #f5b892;
-  --c3-fill: #2c2540;
+  --c3-fill: #3b344d;
   --c3-edge: #c3a8f0;
-  --c4-fill: #1f2b3a;
+  --c4-fill: #2f3a48;
   --c4-edge: #9cc6f0;
-  --c5-fill: #36311d;
+  --c5-fill: #443f2d;
   --c5-edge: #ecd47a;
-  --none-fill: #2d2733;
+  --none-fill: #3e3843;
   --none-edge: #8a7f92;
 }
 
 html[data-dark="on"][data-theme="cozy"] {
-  --bg: #1f1b16;
-  --surface: #28231d;
-  --subtle: #312a23;
+  --bg: #2f2b26;
+  --surface: #39352f;
+  --subtle: #413b35;
   --text: #f4ece1;
-  --muted: #a99b8a;
-  --line: #3b3229;
+  --muted: #bcb1a4;
+  --line: #4d443c;
   --accent: #f0a988;
   --accent-text: #1f1b16;
   --overdue: #ff8a7a;
-  --today-tint: #2e261d;
+  --today-tint: #3f372f;
   --on-edge: #1f1b16;
 
-  --c0-fill: #3a281d;
+  --c0-fill: #48372d;
   --c0-edge: #f2ad88;
-  --c1-fill: #26301f;
+  --c1-fill: #353e2f;
   --c1-edge: #a8c796;
-  --c2-fill: #363017;
+  --c2-fill: #443e27;
   --c2-edge: #e8c862;
-  --c3-fill: #382625;
+  --c3-fill: #463534;
   --c3-edge: #e0a8a2;
-  --c4-fill: #222c33;
+  --c4-fill: #313b41;
   --c4-edge: #a3bfd4;
-  --c5-fill: #33281e;
+  --c5-fill: #41372e;
   --c5-edge: #d0a47e;
-  --none-fill: #312a23;
+  --none-fill: #413b35;
   --none-edge: #8a7d6e;
 }
 
 html[data-dark="on"][data-theme="classic"] {
-  --bg: #161618;
-  --surface: #1f1f22;
-  --subtle: #26262a;
+  --bg: #262628;
+  --surface: #313134;
+  --subtle: #37373b;
   --text: #f2f2f4;
-  --muted: #8e8e95;
-  --line: #2e2e33;
+  --muted: #a7a7ac;
+  --line: #414145;
   --accent: #7aa2f7;
   --accent-text: #161618;
   --overdue: #ff6b61;
-  --today-tint: #1c2130;
+  --today-tint: #2e3341;
   --on-edge: #161618;
 
-  --c0-fill: #1e2a40;
+  --c0-fill: #2e394d;
   --c0-edge: #7aa2f7;
-  --c1-fill: #1c2e24;
+  --c1-fill: #2c3d33;
   --c1-edge: #6fcf8f;
-  --c2-fill: #33261b;
+  --c2-fill: #41352b;
   --c2-edge: #f0a466;
-  --c3-fill: #2a2238;
+  --c3-fill: #393146;
   --c3-edge: #b794f4;
-  --c4-fill: #351f26;
+  --c4-fill: #432f35;
   --c4-edge: #f08aa0;
-  --c5-fill: #1a3030;
+  --c5-fill: #2a3e3e;
   --c5-edge: #5fd0d0;
-  --none-fill: #26262a;
+  --none-fill: #37373b;
   --none-edge: #6e6e75;
 }
 
@@ -2624,9 +2629,9 @@ input.import-row-name:focus-visible {
   width: 46px;
   height: 46px;
   padding: 0;
-  color: var(--accent);
-  background: var(--today-tint);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 12px;
 }
 
@@ -3214,7 +3219,6 @@ body:not(.signed-out) .auth-screen {
   border-radius: 14px;
 }
 
-/* Each day gets at least 120px, so overlapping events stay readable; narrower windows scroll sideways. */
 /* Narrow enough that all 7 days fit in a half-screen window; only very small windows scroll sideways. */
 .week-inner {
   position: relative;
@@ -4518,4 +4522,122 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 .calendar-toolbar .period-nav {
   flex-wrap: wrap;
   row-gap: 4px;
+}
+
+/* ---------- Due Next's look ---------- */
+
+/* Headings in the signature serif. */
+h1,
+h2,
+.period-label,
+.morning-title,
+.finals-text,
+.semester-dates,
+.settings-page-title {
+  font-family: var(--heading-font);
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-weight: 600;
+}
+
+.period-label {
+  font-weight: 500;
+}
+
+/* The name with its mark: a check in the accent color. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+/* Cards float slightly off the page, with a bit more room between sections. */
+.today-panel,
+.week-grid,
+.month,
+.semester-week,
+.finals-countdown {
+  box-shadow: var(--card-shadow);
+}
+
+.workspace {
+  gap: 24px;
+}
+
+/* Buttons lift a little under the pointer. */
+.quiet-button,
+.primary-button,
+.period-arrow {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.quiet-button:hover,
+.primary-button:hover,
+.period-arrow:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--lift-shadow);
+}
+
+.quiet-button:active,
+.primary-button:active,
+.period-arrow:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* Cards settle up gently when the page opens. They never start invisible, so if a browser pauses the
+   animation (a background tab), everything is still there. */
+@keyframes settle-in {
+  from {
+    transform: translateY(8px);
+  }
+}
+
+.today-panel,
+.calendar-area,
+.semester-page {
+  animation: settle-in 350ms ease-out both;
+}
+
+.side-panels .today-panel:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.calendar-area {
+  animation-delay: 120ms;
+}
+
+/* A small pop on the circle of a task just checked off. */
+@keyframes check-pop {
+  40% {
+    transform: scale(1.35);
+  }
+}
+
+.chip.just-checked .check {
+  animation: check-pop 320ms ease-out;
+}
+
+/* People who ask their computer for less motion get none of it. */
+@media (prefers-reduced-motion: reduce) {
+  .today-panel,
+  .calendar-area,
+  .semester-page,
+  .chip.just-checked .check {
+    animation: none;
+  }
+
+  .quiet-button:hover,
+  .primary-button:hover,
+  .period-arrow:hover {
+    transform: none;
+  }
 }

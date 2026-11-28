@@ -481,9 +481,14 @@ function celebrate(click, { pieces = 26 } = {}) {
   setTimeout(() => layer.remove(), CONFETTI_MS + 100);
 }
 
+// The task just checked off, so its circle can give a small pop when it's drawn again.
+let justCheckedId = "";
+
 // Every check-off and delete comes with Undo, in case of a wrong click.
 function toggleDone(task, click) {
+  justCheckedId = task.done ? "" : task.id;
   setDone(task, !task.done);
+  justCheckedId = "";
   if (task.done) celebrate(click);
   showToast(task.done ? `Checked off “${task.name}”.` : `“${task.name}” is back on your list.`, {
     undo: () => setDone(task, !task.done),
@@ -706,7 +711,7 @@ function openRescheduleFor(task) {
 function renderChip(task, subtitle, { showRescheduleButton = false, showFocusButton = false } = {}) {
   const missed = isMissed(task);
   const item = document.createElement("li");
-  item.className = `chip${task.done ? " done" : ""}${missed ? " missed" : ""}`;
+  item.className = `chip${task.done ? " done" : ""}${missed ? " missed" : ""}${task.id === justCheckedId ? " just-checked" : ""}`;
   item.dataset.taskId = task.id;
   const colorIndex = taskColorIndex(task, groups);
   if (colorIndex >= 0) item.dataset.color = String(colorIndex);

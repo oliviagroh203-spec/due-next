@@ -41,7 +41,7 @@
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Nunito:wght@400;500;600;700;800&display=swap" />
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="account.js"></script>
   </head>
@@ -114,7 +114,13 @@
           <button id="open-settings" type="button" class="icon-button menu-button" aria-label="Settings">
             <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
           </button>
-          <h1>Due Next</h1>
+          <h1 class="brand">
+            <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+              <rect x="1" y="1" width="30" height="30" rx="9" fill="currentColor" />
+              <path d="M9.5 16.5l4.5 4.5 8.5-9.5" fill="none" stroke="var(--accent-text)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Due Next
+          </h1>
           <div class="mode-switch" role="tablist" aria-label="Calendar or semester">
             <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">Calendar</button>
             <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">Semester</button>
