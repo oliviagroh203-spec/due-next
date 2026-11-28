@@ -110,7 +110,7 @@
 
     <main>
       <header class="top-bar">
-        <nav class="top-left" aria-label="Move through the calendar">
+        <nav class="top-left" aria-label="Calendar or semester">
           <button id="open-settings" type="button" class="icon-button menu-button" aria-label="Settings">
             <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
           </button>
@@ -118,13 +118,6 @@
           <div class="mode-switch" role="tablist" aria-label="Calendar or semester">
             <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">📅 Calendar</button>
             <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">📊 Semester</button>
-          </div>
-          <!-- Kept together, so in a narrow window they move to the next line as one row. -->
-          <div class="period-nav">
-            <button id="go-to-today" type="button" class="quiet-button" title="Go to today (Ctrl+T)" aria-keyshortcuts="Control+T">Today</button>
-            <button id="previous-period" type="button" class="icon-button round">‹</button>
-            <button id="next-period" type="button" class="icon-button round">›</button>
-            <p id="period-label" class="period-label" aria-live="polite"></p>
           </div>
         </nav>
         <div id="search-bar" class="search-bar" role="search">
@@ -173,8 +166,20 @@
 
       <div class="workspace">
         <div class="calendar-area">
-          <!-- Right above the calendar, so the view is chosen next to what it changes. -->
+          <!-- Right above the calendar: moving through dates and choosing the view, next to what they change. -->
           <div class="calendar-toolbar">
+            <div class="period-nav">
+              <button id="go-to-today" type="button" class="quiet-button" title="Go to today (Ctrl+T)" aria-keyshortcuts="Control+T">Today</button>
+              <button id="previous-period" type="button" class="period-arrow" aria-label="Previous week" title="Previous week">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                <span class="period-arrow-text">Last week</span>
+              </button>
+              <button id="next-period" type="button" class="period-arrow" aria-label="Next week" title="Next week">
+                <span class="period-arrow-text">Next week</span>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
+              <p id="period-label" class="period-label" aria-live="polite"></p>
+            </div>
             <label class="visually-hidden" for="view-select">View</label>
             <select id="view-select" class="view-select">
               <option value="day">Day</option>

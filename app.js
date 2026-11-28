@@ -1672,7 +1672,18 @@ function renderMonth(todayKey) {
   monthContainer.replaceChildren(...weekdayNames, ...monthGrid(visibleDate).map((dateKey) => renderMonthDay(dateKey, todayKey)));
 }
 
+// The arrows say in words what they move by: "Last week / Next week", or month, day, or 2 weeks.
+const PERIOD_NAMES = { week: "week", month: "month", day: "day", agenda: "2 weeks" };
+
 function renderPeriodLabel() {
+  const name = PERIOD_NAMES[view] ?? "week";
+  for (const [id, word] of [["previous-period", "Last"], ["next-period", "Next"]]) {
+    const arrow = document.getElementById(id);
+    const text = `${word} ${name}`;
+    arrow.querySelector(".period-arrow-text").textContent = text;
+    arrow.setAttribute("aria-label", text);
+    arrow.title = text;
+  }
   if (view === "month") {
     periodLabel.textContent = formatDay(visibleDate, { month: "long", year: "numeric" });
     return;

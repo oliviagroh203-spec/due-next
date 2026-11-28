@@ -4480,3 +4480,49 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 .password-eye[aria-pressed="true"] {
   color: var(--accent);
 }
+
+/* Today, the arrows, and the date sit above the calendar with the view menu at the right end. The
+   arrows are big round buttons, so it's clear where to flip to the next week. */
+.calendar-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.period-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 14px 0 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+#next-period {
+  padding: 0 10px 0 14px;
+}
+
+.period-arrow:hover {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.calendar-toolbar .period-label {
+  margin: 0 0 0 6px;
+  font-size: 1.3rem;
+}
+
+/* Above the calendar, the date can drop below the buttons in a narrow window; the buttons stay together. */
+.calendar-toolbar .period-nav {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
