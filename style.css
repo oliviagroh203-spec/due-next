@@ -1095,14 +1095,9 @@ dialog::backdrop {
 
 .form-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 10px;
-}
-
-.row-icon {
-  padding-top: 9px;
-  text-align: center;
 }
 
 .row-content {
@@ -1407,11 +1402,6 @@ select {
 
 .option-section summary:hover {
   background: var(--subtle);
-}
-
-.option-icon {
-  width: 28px;
-  text-align: center;
 }
 
 .option-summary {
@@ -3097,10 +3087,6 @@ body:not(.signed-out) .auth-screen {
   border-radius: var(--radius);
 }
 
-.google-banner-icon {
-  font-size: 1.3rem;
-}
-
 .google-banner-text {
   flex: 1;
   min-width: 200px;
@@ -3420,7 +3406,7 @@ body:not(.signed-out) .auth-screen {
 
 .kind-option {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr;
   column-gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -3440,11 +3426,6 @@ body:not(.signed-out) .auth-screen {
   color: var(--accent-text);
   background: var(--accent);
   border-color: var(--accent);
-}
-
-.kind-icon {
-  grid-row: span 2;
-  font-size: 1.3rem;
 }
 
 .kind-name {
@@ -4099,7 +4080,7 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 .search-icon {
   position: absolute;
   left: 12px;
-  font-size: 0.85rem;
+  color: var(--muted);
   pointer-events: none;
 }
 
@@ -4209,9 +4190,16 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 
 .chip-link {
   flex-shrink: 0;
+  align-self: center;
+  display: grid;
+  place-items: center;
   padding: 0 2px;
-  font-size: 0.8rem;
+  color: var(--muted);
   text-decoration: none;
+}
+
+.chip-link:hover {
+  color: var(--accent);
 }
 
 /* The Sunday card: the week ahead, in the same spot and style as the morning card. */

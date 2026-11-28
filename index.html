@@ -116,12 +116,12 @@
           </button>
           <h1>Due Next</h1>
           <div class="mode-switch" role="tablist" aria-label="Calendar or semester">
-            <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">📅 Calendar</button>
-            <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">📊 Semester</button>
+            <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">Calendar</button>
+            <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">Semester</button>
           </div>
         </nav>
         <div id="search-bar" class="search-bar" role="search">
-          <span class="search-icon" aria-hidden="true">🔍</span>
+          <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" /><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
           <input id="search-input" type="search" placeholder="Search (Ctrl+/)" aria-label="Search tasks, steps, and events" aria-keyshortcuts="Control+/" autocomplete="off" />
           <div id="search-panel" class="search-panel" hidden>
             <p id="search-hint" class="step-help" role="status" aria-live="polite"></p>
@@ -129,9 +129,9 @@
           </div>
         </div>
         <div class="top-right">
-          <button id="open-lock-in" type="button" class="quiet-button">🔒 Lock in</button>
-          <button id="open-progress" type="button" class="quiet-button">📈 Progress</button>
-          <button id="open-import" type="button" class="quiet-button">⬇ Import</button>
+          <button id="open-lock-in" type="button" class="quiet-button">Lock in</button>
+          <button id="open-progress" type="button" class="quiet-button">Progress</button>
+          <button id="open-import" type="button" class="quiet-button">Import</button>
           <button id="google-update" type="button" class="quiet-button google-update" hidden>
             ↻ Update Google <span id="google-update-age" class="google-update-age"></span>
           </button>
@@ -148,7 +148,6 @@
 
       <p id="sync-error" class="storage-error" role="alert" hidden></p>
       <p id="google-banner" class="google-banner" role="status" hidden>
-        <span class="google-banner-icon" aria-hidden="true">📅</span>
         <span id="google-banner-text" class="google-banner-text"></span>
         <button id="google-banner-refresh" type="button" class="primary-button">Show Google Calendar</button>
         <button id="google-banner-not-now" type="button" class="quiet-button" hidden>Not now</button>
@@ -211,7 +210,7 @@
             </div>
             <button id="open-plan" type="button" class="primary-button plan-button">Plan my day</button>
             <ul id="today-list" class="today-list"></ul>
-            <p id="today-empty" class="today-empty" hidden>Nothing due today 🎉</p>
+            <p id="today-empty" class="today-empty" hidden>Nothing due today</p>
           </aside>
 
           <aside class="today-panel" aria-labelledby="start-by-title">
@@ -221,7 +220,7 @@
             </div>
             <ul id="start-by-list" class="today-list"></ul>
             <p id="start-by-empty" class="today-empty" hidden>
-              Add ⏱ how long a task will take, and when to start it shows up here.
+              Add how long a task will take, and when to start it shows up here.
             </p>
           </aside>
         </div>
@@ -243,7 +242,7 @@
 
       <div id="morning-card" class="morning-card" role="status" hidden>
         <div>
-          <p class="morning-title">☀️ Good morning</p>
+          <p class="morning-title">Good morning</p>
           <p id="morning-text" class="morning-text"></p>
         </div>
         <button id="morning-dismiss" type="button" class="quiet-button">Got it</button>
@@ -251,13 +250,13 @@
 
       <div id="sunday-card" class="morning-card sunday-card" role="status" hidden>
         <div class="sunday-body">
-          <p class="morning-title">🗓️ Your week</p>
+          <p class="morning-title">Your week</p>
           <p id="sunday-summary" class="morning-text"></p>
           <ul id="sunday-list" class="sunday-list"></ul>
           <p id="sunday-extra" class="morning-text"></p>
         </div>
         <div class="sunday-actions">
-          <button id="sunday-see-week" type="button" class="quiet-button">📊 See the week</button>
+          <button id="sunday-see-week" type="button" class="quiet-button">See the week</button>
           <button id="sunday-dismiss" type="button" class="quiet-button">Got it</button>
         </div>
       </div>
@@ -311,9 +310,9 @@
       <form id="import-form" class="missed-body" novalidate>
         <h2 id="import-title">Import tasks</h2>
         <div class="segmented import-modes" role="group" aria-label="What do you have?">
-          <button type="button" class="segment" data-import-mode="file">📄 File</button>
-          <button type="button" class="segment" data-import-mode="link">🔗 Calendar link</button>
-          <button type="button" class="segment" data-import-mode="paste">✍️ Paste text</button>
+          <button type="button" class="segment" data-import-mode="file">File</button>
+          <button type="button" class="segment" data-import-mode="link">Calendar link</button>
+          <button type="button" class="segment" data-import-mode="paste">Paste text</button>
         </div>
         <p id="import-intro" class="missed-details"></p>
 
@@ -345,14 +344,13 @@
               It saves to your Downloads folder as a <strong>.ics</strong> file. If your Mac offers to open it in the
               Calendar app, say no.
             </span>
-            <button id="canvas-download" type="button" class="primary-button step-button">⬇ Download my calendar file</button>
+            <button id="canvas-download" type="button" class="primary-button step-button">Download my calendar file</button>
           </li>
         </ol>
 
         <div id="import-file-area">
           <input id="import-file" class="visually-hidden" type="file" accept=".pdf,application/pdf,.ics,text/calendar" />
           <label id="file-drop" class="file-drop" for="import-file">
-            <span aria-hidden="true">📄</span>
             <span id="file-drop-text">Choose a PDF or .ics file, or drag it here</span>
           </label>
         </div>
@@ -401,7 +399,7 @@
         Need help? Ask me about your tasks.
         <button id="dismiss-chat-greeting" type="button" class="chat-greeting-close" aria-label="Hide this message">×</button>
       </p>
-      <button id="open-chat" type="button" class="chat-launcher-button" aria-label="Open chat" aria-expanded="false">💬</button>
+      <button id="open-chat" type="button" class="chat-launcher-button" aria-label="Open chat" aria-expanded="false"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 5h16v11H9l-4 4v-4H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /></svg></button>
     </div>
 
     <dialog id="chat-panel" class="chat-panel" aria-labelledby="chat-title">
@@ -488,7 +486,7 @@
           <button id="close-progress" type="button" class="icon-button round" aria-label="Close">×</button>
         </div>
         <div class="streak-card">
-          <p class="streak-number"><span aria-hidden="true">🔥</span> <span id="streak-count"></span></p>
+          <p class="streak-number"><span id="streak-count"></span></p>
           <p id="streak-note" class="streak-note"></p>
         </div>
         <h3 class="progress-heading">This week</h3>
@@ -721,7 +719,7 @@
               <p class="step-help">
                 Save a copy of everything (tasks, steps, events, groups, and settings) to a file on this computer, just in case.
               </p>
-              <button id="download-backup" type="button" class="quiet-button">⬇ Download a backup</button>
+              <button id="download-backup" type="button" class="quiet-button">Download a backup</button>
             </div>
             <div class="settings-actions">
               <button id="settings-sign-out" type="button" class="quiet-button">Sign out</button>
@@ -737,12 +735,10 @@
         <h2 id="add-dialog-title" class="dialog-kicker">New task</h2>
         <div id="kind-switch" class="kind-switch" role="radiogroup" aria-label="What are you adding?">
           <button type="button" class="kind-option" data-kind="task" role="radio">
-            <span class="kind-icon" aria-hidden="true">✓</span>
             <span class="kind-name">Task</span>
             <span class="kind-help">Due by a time</span>
           </button>
           <button type="button" class="kind-option" data-kind="event" role="radio">
-            <span class="kind-icon" aria-hidden="true">📅</span>
             <span class="kind-name">Event</span>
             <span class="kind-help">Happens at a time</span>
           </button>
@@ -758,7 +754,6 @@
         />
 
         <div class="form-row">
-          <span class="row-icon" aria-hidden="true">🕒</span>
           <div class="row-content">
             <div class="when-line">
               <span id="due-word" class="when-word">Due</span>
@@ -823,7 +818,6 @@
         </div>
 
         <div id="event-location-row" class="form-row" hidden>
-          <span class="row-icon" aria-hidden="true">📍</span>
           <div class="row-content">
             <input
               id="event-location"
@@ -841,12 +835,10 @@
         </div>
 
         <div id="event-reminder-row" class="form-row" hidden>
-          <span class="row-icon" aria-hidden="true">🔔</span>
           <select id="event-reminder" class="row-input" aria-label="Reminder for this event"></select>
         </div>
 
         <div class="form-row">
-          <span class="row-icon" aria-hidden="true">🎓</span>
           <input
             id="task-course"
             class="row-input"
@@ -861,7 +853,6 @@
         <div class="option-sections">
           <details id="group-section" class="option-section">
             <summary>
-              <span class="option-icon" aria-hidden="true">🎨</span>
               <span id="group-summary" class="option-summary"></span>
             </summary>
             <div class="option-body">
@@ -880,7 +871,6 @@
           </details>
           <details id="task-repeats-section" class="option-section">
             <summary>
-              <span class="option-icon" aria-hidden="true">↻</span>
               <span id="repeats-summary" class="option-summary"></span>
             </summary>
             <div class="option-body">
@@ -899,7 +889,6 @@
           </details>
           <details id="reminders-section" class="option-section">
             <summary>
-              <span class="option-icon" aria-hidden="true">🔔</span>
               <span id="reminders-summary" class="option-summary"></span>
             </summary>
             <fieldset class="option-body reminders">
@@ -916,7 +905,6 @@
           </details>
           <details id="steps-section" class="option-section">
             <summary>
-              <span class="option-icon" aria-hidden="true">🪜</span>
               <span id="steps-summary" class="option-summary"></span>
             </summary>
             <div class="option-body">
@@ -929,7 +917,6 @@
         </div>
 
         <div id="notes-section" class="form-row">
-          <span class="row-icon" aria-hidden="true">📝</span>
           <div class="row-content">
             <textarea
               id="task-notes"
@@ -943,7 +930,6 @@
           </div>
         </div>
         <div id="weight-section" class="form-row">
-          <span class="row-icon" aria-hidden="true">🎯</span>
           <div class="row-content weight-row">
             <label for="task-weight">Worth</label>
             <input id="task-weight" class="weight-input" type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="—" />
@@ -951,7 +937,6 @@
           </div>
         </div>
         <div id="estimate-section" class="form-row">
-          <span class="row-icon" aria-hidden="true">⏱</span>
           <div class="row-content">
             <select id="estimate-select" class="row-input estimate-select" aria-label="How long will it take?"></select>
             <p id="estimate-start" class="estimate-start" hidden></p>
@@ -959,7 +944,7 @@
         </div>
         <p id="form-message" class="form-message" role="status" aria-live="polite"></p>
         <div class="dialog-actions">
-          <button id="focus-from-edit" type="button" class="quiet-button focus-from-edit" hidden>🔒 Lock in on this</button>
+          <button id="focus-from-edit" type="button" class="quiet-button focus-from-edit" hidden>Lock in on this</button>
           <button id="delete-event" type="button" class="quiet-button delete-event" hidden>Delete event</button>
           <button id="cancel-add" type="button" class="quiet-button">Cancel</button>
           <button id="add-submit" type="submit" class="primary-button">Save</button>

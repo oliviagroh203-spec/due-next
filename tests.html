@@ -1331,7 +1331,7 @@
       });
 
       test("the focus summary describes how often you left", () => {
-        assertEqual(describeLeaves(0), "You stayed on this page the whole time ✨");
+        assertEqual(describeLeaves(0), "You stayed on this page the whole time.");
         assertEqual(describeLeaves(1), "You left this page 1 time.");
         assertEqual(describeLeaves(3), "You left this page 3 times.");
       });
@@ -1717,11 +1717,11 @@
 
       test("the morning summary shows the streak and skips what's zero", () => {
         const streak = { sessions: [], completions: [{ taskId: "x", date: "2026-11-02" }, { taskId: "y", date: "2026-11-01" }] };
-        assertEqual(morningSummary([planTask("Due", "2026-11-03")], streak, morning, ""), "Today: 1 due · 🔥 2-day streak");
+        assertEqual(morningSummary([planTask("Due", "2026-11-03")], streak, morning, ""), "Today: 1 due · 2-day streak");
       });
 
       test("a morning with nothing to do says so", () => {
-        assertEqual(morningSummary([], noProgress, morning, ""), "Nothing due today 🌷");
+        assertEqual(morningSummary([], noProgress, morning, ""), "Nothing due today");
       });
 
       test("the morning summary only appears before noon, once a day", () => {

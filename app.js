@@ -334,11 +334,11 @@ function formatHour(hour) {
   return new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, { hour: "numeric" });
 }
 
-// "9:00 AM · CS 124 · ↻ · 🔔" (↻ marks a repeating task); "Anytime" stands in for a missing time where a list mixes timed and untimed tasks.
+// "9:00 AM · CS 124 · ↻ · reminder on" (↻ marks a repeating task); "Anytime" stands in for a missing time where a list mixes timed and untimed tasks.
 function taskDetails(task, { anytimeLabel = false } = {}) {
   const time = formatTime(task.time) || (anytimeLabel ? "Anytime" : "");
   const repeating = task.seriesId ? "↻" : "";
-  return [time, task.course, repeating, hasReminders(task) && !task.done ? "🔔" : ""].filter(Boolean).join(" · ");
+  return [time, task.course, repeating, hasReminders(task) && !task.done ? "reminder on" : ""].filter(Boolean).join(" · ");
 }
 
 function showStorageError(message) {
@@ -425,6 +425,13 @@ function setDone(task, done) {
   persist();
   render();
 }
+
+// Simple one-color line drawings for the few buttons that are only a picture (no emoji).
+const LINE_ICONS = {
+  chat: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M4 5h16v11H9l-4 4v-4H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /></svg>',
+  lock: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2" /></svg>',
+  link: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>',
+};
 
 // A little celebration: confetti bursts from the circle that was clicked. Short, never in the way of
 // a click, off in Settings → Look → Celebrations, and skipped when the computer asks for less motion.
@@ -790,7 +797,7 @@ function renderChip(task, subtitle, { showRescheduleButton = false, showFocusBut
     const focusButton = document.createElement("button");
     focusButton.type = "button";
     focusButton.className = "chip-focus";
-    focusButton.textContent = "🔒";
+    focusButton.innerHTML = LINE_ICONS.lock;
     focusButton.title = "Lock in on this";
     focusButton.setAttribute("aria-label", `Lock in on ${task.name}`);
     focusButton.addEventListener("click", () => openFocusStart(task));
@@ -827,14 +834,14 @@ function togglePin(task) {
   showToast(task.pinned ? `Pinned “${task.name}” to the top of Today.` : `Unpinned “${task.name}”.`);
 }
 
-// 🔗 on a task with a link in its notes: one click opens it in a new tab.
+// The link button on a task with a link in its notes: one click opens it in a new tab.
 function linkButton(href, taskName) {
   const anchor = document.createElement("a");
   anchor.className = "chip-link";
   anchor.href = href;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
-  anchor.textContent = "🔗";
+  anchor.innerHTML = LINE_ICONS.link;
   anchor.title = `Open ${href}`;
   anchor.setAttribute("aria-label", `Open the link for ${taskName}`);
   // Opening the link shouldn't also open or drag the task.
@@ -852,7 +859,7 @@ function renderNotesLinks() {
       anchor.href = link;
       anchor.target = "_blank";
       anchor.rel = "noopener noreferrer";
-      anchor.textContent = `🔗 ${link.replace(/^https?:\/\//, "").slice(0, 60)}`;
+      anchor.textContent = `Open ${link.replace(/^https?:\/\//, "").slice(0, 60)}`;
       return index === 0 ? [anchor] : [" ", anchor];
     }),
   );
@@ -921,7 +928,7 @@ function renderGoogleEvent(entry, { short = false } = {}) {
     item.classList.add("due-event");
     item.dataset.eventId = entry.eventId;
     if (entry.colorIndex >= 0) item.dataset.color = String(entry.colorIndex);
-    item.title = [entry.name, longTime, entry.location && `📍 ${entry.location}`, "click to change"].filter(Boolean).join(" · ");
+    item.title = [entry.name, longTime, entry.location && `at ${entry.location}`, "click to change"].filter(Boolean).join(" · ");
     item.tabIndex = 0;
     item.setAttribute("role", "button");
     const open = () => openEditEvent(events.find((event) => event.id === entry.eventId));
@@ -1199,7 +1206,7 @@ function renderAgenda(todayKey) {
   agendaContainer.replaceChildren(...days);
 }
 
-// Semester: its own part of the app, switched to with the 📊 Semester tab, with a row per week showing
+// Semester: its own part of the app, switched to with the Semester tab, with a row per week showing
 // how heavy it is, so crunch weeks can be seen coming. Clicking a week goes back to the calendar on it.
 function weekRange(start) {
   const end = addDays(start, 6);
@@ -1312,10 +1319,10 @@ function semesterEvents() {
   return [...applyGoogleChanges(eventsNotInTasks(googleCalendarEntries(), tasks), googleChanges), ...eventEntries(events, groups)];
 }
 
-// "📅 +5 hours of events beyond a usual week"
+// "+5 hours of events beyond a usual week"
 function describeExtraEvents(minutes) {
   const hours = Math.round(minutes / 30) / 2;
-  return `📅 +${hours} hour${hours === 1 ? "" : "s"} of classes and events beyond a usual week`;
+  return `+${hours} hour${hours === 1 ? "" : "s"} of classes and events beyond a usual week`;
 }
 
 // What's due in a week, on its card: "Thu · Midterm 2 · CHEM 102", in day order, exams and
@@ -1346,7 +1353,7 @@ function renderSemesterTasks(week) {
   return list;
 }
 
-// The countdown at the top of the Semester view: "📚 3 weeks until finals (Dec 11) · 2 busy weeks
+// The countdown at the top of the Semester view: "3 weeks until finals (Dec 11) · 2 busy weeks
 // before then", with a date box to set when finals start (otherwise guessed from a "Final" task).
 function finalsDate(todayKey) {
   let chosen = "";
@@ -1368,11 +1375,11 @@ function renderFinalsCountdown(weeks, todayKey) {
   if (countdown) {
     const busyBefore = weeks.filter((week) => week.start < finals && (week.level === "busy" || week.level === "very-busy")).length;
     const busyText = busyBefore > 0 ? ` · ${busyBefore} busy week${busyBefore === 1 ? "" : "s"} before then` : "";
-    text.textContent = `📚 ${countdown}${busyText}`;
+    text.textContent = `${countdown}${busyText}`;
   } else {
     // Finals week (and a bit after): encouragement. Long after: ready for next term's date.
     const finalsWeek = finals && finals <= todayKey && addDays(finals, 14) >= todayKey;
-    text.textContent = finalsWeek ? "📚 Finals are here. You've got this." : "📚 Set when finals start to see a countdown.";
+    text.textContent = finalsWeek ? "Finals are here. You've got this." : "Set when finals start to see a countdown.";
   }
   const label = document.createElement("label");
   label.className = "finals-date";
@@ -1402,7 +1409,7 @@ function renderGetAhead(week) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "quiet-button get-ahead";
-  button.textContent = "🪜 Get ahead";
+  button.textContent = "Get ahead";
   button.title = `Add steps to ${big.map((task) => task.name).join(", ")}`;
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1442,9 +1449,9 @@ function renderSemester(todayKey) {
   summary.className = "semester-summary";
   const chosen = calendarFilter ? (calendarFilter.value ?? groups.find((group) => group.id === calendarFilter.id)?.name ?? "") : "";
   const busiestText = busiest.map((week) => weekRange(week.start)).join(", ");
-  if (chosen && shownWeeks.length === 0) summary.textContent = `Nothing due for ${chosen} coming up. 🎉`;
-  else if (busiest.length > 0) summary.textContent = `🔥 ${chosen ? `Busiest weeks for ${chosen}` : "Your busiest weeks"}: ${busiestText}.`;
-  else summary.textContent = `No busy weeks${chosen ? ` for ${chosen}` : ""} coming up. 🎉`;
+  if (chosen && shownWeeks.length === 0) summary.textContent = `Nothing due for ${chosen} coming up.`;
+  else if (busiest.length > 0) summary.textContent = `${chosen ? `Busiest weeks for ${chosen}` : "Your busiest weeks"}: ${busiestText}.`;
+  else summary.textContent = `No busy weeks${chosen ? ` for ${chosen}` : ""} coming up.`;
   const countdown = renderFinalsCountdown(weeks, todayKey);
   const rows = shownWeeks.map((week) => {
     const index = weeks.indexOf(week);
@@ -1457,7 +1464,7 @@ function renderSemester(todayKey) {
     row.setAttribute("aria-label", `${weekRange(week.start)}: ${describeSemesterWeek(week)}. Open this week.`);
     const dates = document.createElement("span");
     dates.className = "semester-dates";
-    dates.textContent = `${week.busiest ? "🔥 " : ""}${index === 0 ? "This week" : weekRange(week.start)}`;
+    dates.textContent = `${week.busiest ? "Busiest · " : ""}${index === 0 ? "This week" : weekRange(week.start)}`;
     const bar = document.createElement("span");
     bar.className = "semester-bar";
     const fill = document.createElement("span");
@@ -3210,7 +3217,7 @@ function renderTravelModes() {
 function showChosenPlace(place) {
   chosenPlace = place;
   placeChosen.hidden = !place;
-  placeChosen.textContent = place ? `📍 ${[place.name, place.address].filter(Boolean).join(" · ")}` : "";
+  placeChosen.textContent = place ? `Location: ${[place.name, place.address].filter(Boolean).join(" · ")}` : "";
   renderTravelModes();
 }
 
@@ -3814,7 +3821,7 @@ function showReminderAlert(name, body, tag) {
   const text = document.createElement("span");
   const nameText = document.createElement("span");
   nameText.className = "reminder-alert-name";
-  nameText.textContent = `🔔 ${name}`;
+  nameText.textContent = name;
   text.append(nameText, ` · ${body}`);
   const dismiss = document.createElement("button");
   dismiss.type = "button";
@@ -4127,7 +4134,7 @@ let taskToFocusOn = null;
 // Opened from a task, it locks in on that task; from the top bar, it asks which one.
 function openFocusStart(task = null) {
   taskToFocusOn = task;
-  document.getElementById("focus-start-title").textContent = task ? `Lock in on “${task.name}”` : "🔒 Lock in";
+  document.getElementById("focus-start-title").textContent = task ? `Lock in on “${task.name}”` : "Lock in";
   const choices = task ? [] : unfinishedTasksSoonestFirst();
   focusTaskSelect.replaceChildren(
     ...choices.map((choice) => new Option(`${choice.name} · ${describeDue(choice, toDateKey(new Date()))}`, choice.id)),
@@ -4159,7 +4166,7 @@ focusLengths.append(
 const pomodoroButton = document.createElement("button");
 pomodoroButton.type = "button";
 pomodoroButton.className = "focus-length pomodoro";
-pomodoroButton.textContent = `🍅 Pomodoro: ${POMODORO_FOCUS_MINUTES} min, then a ${POMODORO_BREAK_MINUTES}-min break`;
+pomodoroButton.textContent = `Pomodoro: ${POMODORO_FOCUS_MINUTES} min, then a ${POMODORO_BREAK_MINUTES}-min break`;
 pomodoroButton.addEventListener("click", () => startFocus(POMODORO_FOCUS_MINUTES, true));
 focusLengths.append(pomodoroButton);
 
@@ -4259,17 +4266,17 @@ function startFocus(minutes, pomodoro) {
 function showRunningFocus() {
   const paused = focusSession.timer.runningSince === null;
   const onBreak = focusSession.phase === "break";
-  focusKicker.textContent = onBreak ? "Break ☕" : paused ? "Paused" : "Focusing";
+  focusKicker.textContent = onBreak ? "Break" : paused ? "Paused" : "Focusing";
   focusStatus.textContent = onBreak ? "Stretch, get some water, rest your eyes." : "";
   setFocusActions(
     onBreak
       ? [{ label: "End break", onClick: finishBreak }]
       : [
-          { label: paused ? "▶ Resume" : "⏸ Pause", primary: true, onClick: togglePause },
+          { label: paused ? "Resume" : "Pause", primary: true, onClick: togglePause },
           { label: "Hold to stop", onClick: stopFocus, holdToConfirm: true },
           ...(document.fullscreenElement || !focusScreen.requestFullscreen
             ? []
-            : [{ label: "⛶ Full screen", onClick: enterFullScreen }]),
+            : [{ label: "Full screen", onClick: enterFullScreen }]),
         ],
   );
   drawCountdown();
@@ -4339,9 +4346,9 @@ function finishFocus() {
   clearFocusNudge();
   playChime();
   const { task } = focusSession;
-  sendNotification("Time's up! 🎉", `Did you finish ${task.name}?`, "focus");
+  sendNotification("Time's up!", `Did you finish ${task.name}?`, "focus");
   const minutes = timerMinutesDone(focusSession.timer, Date.now());
-  focusKicker.textContent = "Time's up! 🎉";
+  focusKicker.textContent = "Time's up!";
   focusCountdown.textContent = "0:00";
   document.title = "Time's up! · Due Next";
   focusStatus.textContent = `You focused for ${minutes} minutes. ${describeLeaves(focusSession.leaves)} Did you finish?`;
@@ -4354,7 +4361,7 @@ function finishFocus() {
         creditCompletion(task);
         persist();
         render();
-        offerBreakOrClose(`Checked off “${task.name}”. Nice work! 🎉`);
+        offerBreakOrClose(`Checked off “${task.name}”. Nice work!`);
       },
     },
     {
@@ -4381,7 +4388,7 @@ function offerBreakOrClose(message) {
   focusKicker.textContent = "Good work";
   focusStatus.textContent = message;
   setFocusActions([
-    { label: `☕ Start ${POMODORO_BREAK_MINUTES}-minute break`, primary: true, onClick: startBreak },
+    { label: `Start ${POMODORO_BREAK_MINUTES}-minute break`, primary: true, onClick: startBreak },
     { label: "Back to my calendar", onClick: () => closeFocus(message) },
   ]);
 }
@@ -4398,8 +4405,8 @@ function finishBreak() {
   playChime();
   const { task } = focusSession;
   const question = task.done ? "Hope you feel rested." : "Ready for another round?";
-  sendNotification("Break's over ☕", task.done ? question : `Ready for another round on ${task.name}?`, "focus");
-  focusKicker.textContent = "Break's over ☕";
+  sendNotification("Break's over", task.done ? question : `Ready for another round on ${task.name}?`, "focus");
+  focusKicker.textContent = "Break's over";
   focusCountdown.textContent = "0:00";
   document.title = "Break's over · Due Next";
   focusStatus.textContent = question;
@@ -4447,7 +4454,7 @@ function noticeLeaving() {
   focusSession.nudgeTimeout = setTimeout(() => {
     if (!focusSession) return;
     const minutesLeft = Math.ceil(timerRemaining(focusSession.timer, Date.now()) / 60_000);
-    sendNotification(`Come back to ${task.name} 💪`, `${minutesLeft} ${minutesLeft === 1 ? "minute" : "minutes"} left`, "focus");
+    sendNotification(`Come back to ${task.name}`, `${minutesLeft} ${minutesLeft === 1 ? "minute" : "minutes"} left`, "focus");
   }, FOCUS_NUDGE_DELAY_MS);
 }
 
@@ -4455,7 +4462,7 @@ function noticeReturning() {
   if (!focusSession || !focusSession.away) return;
   focusSession.away = false;
   clearFocusNudge();
-  if (focusSession.phase === "focus") focusStatus.textContent = `Welcome back 💪 ${describeLeaves(focusSession.leaves)}`;
+  if (focusSession.phase === "focus") focusStatus.textContent = `Welcome back. ${describeLeaves(focusSession.leaves)}`;
 }
 
 window.addEventListener("blur", noticeLeaving);
@@ -4626,7 +4633,7 @@ function renderImportReminderLabels() {
     const nameElement = row.querySelector(".import-row-name");
     const name = nameElement.value ?? nameElement.textContent;
     const text = describeReminderTimes(importReminders(name, importReminderLevel.value));
-    row.querySelector(".import-row-reminder").textContent = text ? `🔔 ${text}` : "";
+    row.querySelector(".import-row-reminder").textContent = text ? `Reminder: ${text}` : "";
   }
 }
 
@@ -5036,7 +5043,7 @@ function renderPlanBlock(block) {
     const lockIn = document.createElement("button");
     lockIn.type = "button";
     lockIn.className = "quiet-button";
-    lockIn.textContent = "🔒";
+    lockIn.innerHTML = LINE_ICONS.lock;
     lockIn.setAttribute("aria-label", `Lock in on ${task.name}`);
     lockIn.addEventListener("click", () => {
       planPanel.close();
@@ -5065,7 +5072,7 @@ function renderPlan() {
   planEmpty.hidden = dayPlan.blocks.length > 0;
   planEmpty.textContent = dayPlan.unscheduled.length > 0
     ? "Nothing fits in that time. Try more hours or another time of day."
-    : "Nothing to plan: no missed tasks, and nothing due in the next week 🎉";
+    : "Nothing to plan: no missed tasks, and nothing due in the next week.";
   const names = dayPlan.unscheduled
     .map(({ taskId, reason }) => {
       const task = tasks.find((other) => other.id === taskId);
@@ -5269,12 +5276,12 @@ function replyWithBusiestWeeks() {
   const weeks = semesterWeeks(tasks, toDateKey(new Date()), { workload: chosenWorkload() });
   const busiest = weeks.filter((week) => week.busiest).sort((a, b) => b.score - a.score);
   if (busiest.length === 0) {
-    addChatMessage("No busy weeks coming up 🎉 Every week ahead looks light or steady.");
+    addChatMessage("No busy weeks coming up. Every week ahead looks light or steady.");
     return;
   }
   const lines = busiest.map((week) => `• ${weekRange(week.start)}: ${describeSemesterWeek(week)}`);
   addChatMessage(`Your busiest weeks:\n${lines.join("\n")}`, {
-    actions: [{ label: "📊 Open Semester", onClick: () => showMode("semester") }],
+    actions: [{ label: "Open Semester", onClick: () => showMode("semester") }],
   });
 }
 
@@ -5358,7 +5365,7 @@ function offerToFinish(task) {
           creditCompletion(task);
           persist();
           render();
-          addChatMessage(`Checked off “${task.name}”. Nice work! 🎉`);
+          addChatMessage(`Checked off “${task.name}”. Nice work!`);
         },
       },
       { label: "Cancel", onClick: () => addChatMessage("Okay, I left it open.") },
@@ -5368,7 +5375,7 @@ function offerToFinish(task) {
 
 function showSuggestion(suggestions, index) {
   if (suggestions.length === 0) {
-    addChatMessage("Nothing needs doing in the next week. Enjoy the break 🎉");
+    addChatMessage("Nothing needs doing in the next week. Enjoy the break.");
     return;
   }
   if (index >= suggestions.length) {
@@ -5379,7 +5386,7 @@ function showSuggestion(suggestions, index) {
   addChatMessage(`I'd do “${task.name}”.\n${reason}${task.course ? ` · ${task.course}` : ""}`, {
     actions: [
       {
-        label: "🔒 Lock in",
+        label: "Lock in",
         onClick: () => {
           chatPanel.close();
           openFocusStart(task);
@@ -5420,7 +5427,7 @@ function replyWithProgress() {
   const todayKey = toDateKey(new Date());
   const { current } = streakInfo(progress, todayKey);
   const week = weekProgress(progress, todayKey);
-  addChatMessage(`🔥 ${current}-day streak\nThis week: ${formatDuration(week.minutes)} locked in, ${week.tasksDone} ${week.tasksDone === 1 ? "task" : "tasks"} finished.`);
+  addChatMessage(`${current}-day streak\nThis week: ${formatDuration(week.minutes)} locked in, ${week.tasksDone} ${week.tasksDone === 1 ? "task" : "tasks"} finished.`);
 }
 
 function replyToMessage(text) {
@@ -5454,7 +5461,7 @@ function replyToMessage(text) {
     case "list":
       addChatMessage(
         request.tasks.length === 0
-          ? `Nothing due ${request.label} 🎉`
+          ? `Nothing due ${request.label}.`
           : `Due ${request.label}:\n${request.tasks.map((task) => `• ${task.name} (${describeDue(task, todayKey)})`).join("\n")}`,
       );
       break;
@@ -5552,7 +5559,7 @@ chatLauncher.addEventListener("click", () => {
   else openChat();
 });
 chatPanel.addEventListener("close", () => {
-  chatLauncher.textContent = "💬";
+  chatLauncher.innerHTML = LINE_ICONS.chat;
   chatLauncher.setAttribute("aria-label", "Open chat");
   chatLauncher.setAttribute("aria-expanded", "false");
 });
@@ -5582,7 +5589,7 @@ function renderProgress() {
   document.getElementById("week-tasks-label").textContent = week.tasksDone === 1 ? "task finished" : "tasks finished";
   document.getElementById("week-focus").textContent =
     week.sessionCount === 0
-      ? "No Lock in sessions yet this week. Click 🔒 Lock in to start one."
+      ? "No Lock in sessions yet this week. Click Lock in to start one."
       : `You stayed on the page in ${week.stayedCount} of ${week.sessionCount} ${week.sessionCount === 1 ? "session" : "sessions"}.`;
 
   const most = week.byLabel[0]?.minutes ?? 1;
@@ -6090,7 +6097,7 @@ function showSundayPlan() {
   const weekday = (dateKey) => formatDay(dateKey, { weekday: "short" });
   const count = plan.due.length;
   document.getElementById("sunday-summary").textContent =
-    count === 0 ? "Nothing due this week 🌷" : `${count} due this week${plan.busiest ? ` · busiest ${weekday(plan.busiest.date)} (${plan.busiest.count})` : ""}`;
+    count === 0 ? "Nothing due this week." : `${count} due this week${plan.busiest ? ` · busiest ${weekday(plan.busiest.date)} (${plan.busiest.count})` : ""}`;
   const shown = plan.due.slice(0, SUNDAY_LIST_LIMIT);
   document.getElementById("sunday-list").replaceChildren(
     ...shown.map((task) => {

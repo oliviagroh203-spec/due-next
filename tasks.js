@@ -186,7 +186,7 @@ export function notesParts(notes) {
   return parts;
 }
 
-// The first link in a task's notes, or "": what the 🔗 on the calendar opens.
+// The first link in a task's notes, or "": what the link button on the calendar opens.
 export function firstLink(notes) {
   return notesParts(notes).find((part) => part.link)?.link ?? "";
 }
@@ -963,7 +963,7 @@ export function formatCountdown(remainingMs) {
 }
 
 export function describeLeaves(count) {
-  if (count === 0) return "You stayed on this page the whole time ✨";
+  if (count === 0) return "You stayed on this page the whole time.";
   return count === 1 ? "You left this page 1 time." : `You left this page ${count} times.`;
 }
 
@@ -1516,8 +1516,8 @@ export function morningSummary(tasks, progress, now, lastShownDate) {
     [groups.overdue.length, "missed"],
   ].filter(([count]) => count > 0);
   const { current } = streakInfo(progress, todayKey);
-  const streak = current > 0 ? ` · 🔥 ${current}-day streak` : "";
-  if (counts.length === 0) return `Nothing due today 🌷${streak}`;
+  const streak = current > 0 ? ` · ${current}-day streak` : "";
+  if (counts.length === 0) return `Nothing due today${streak}`;
   return `Today: ${counts.map(([count, label]) => `${count} ${label}`).join(", ")}${streak}`;
 }
 
