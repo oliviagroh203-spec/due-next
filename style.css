@@ -1,3 +1,8 @@
+:root {
+  /* Buttons, menus, and the search box: softly squared corners, not pills. */
+  --button-radius: 8px;
+}
+
 :root,
 [data-theme="pastel"] {
   /* Soft pastels (the default): cream background, blush accents. */
@@ -262,7 +267,7 @@ h1 {
   color: inherit;
   background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2386868b' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--button-radius);
   appearance: none;
   cursor: pointer;
 }
@@ -284,7 +289,7 @@ h1 {
 .quiet-button,
 .primary-button {
   min-height: 38px;
-  border-radius: 999px;
+  border-radius: var(--button-radius);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -1341,7 +1346,7 @@ select {
   font-size: 0.85rem;
   background: var(--subtle);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--button-radius);
 }
 
 .quick-pick:hover {
@@ -1590,7 +1595,7 @@ select {
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--button-radius);
 }
 
 .filter-choice:hover {
@@ -3626,7 +3631,7 @@ body:not(.signed-out) .auth-screen {
   color: var(--bg);
   background: transparent;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--button-radius);
   cursor: pointer;
 }
 
@@ -3727,7 +3732,7 @@ body:not(.signed-out) .auth-screen {
   padding: 4px;
   background: var(--subtle);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: calc(var(--button-radius) + 4px);
 }
 
 .mode-tab {
@@ -3738,7 +3743,7 @@ body:not(.signed-out) .auth-screen {
   color: var(--text);
   background: transparent;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--button-radius);
   cursor: pointer;
 }
 
@@ -3968,7 +3973,7 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
   color: var(--text);
   background: var(--subtle);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--button-radius);
   cursor: pointer;
 }
 
@@ -4092,7 +4097,7 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
   font: inherit;
   background: var(--subtle);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--button-radius);
 }
 
 .search-bar input[type="search"]:focus {
@@ -4491,7 +4496,7 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
   color: var(--accent);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--button-radius);
 }
 
 #next-period {
