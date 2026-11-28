@@ -31,7 +31,9 @@
       // Apply the saved theme and background before the page draws, so it never flashes the defaults first.
       try {
         document.documentElement.dataset.theme = localStorage.getItem("due-theme") || "pastel";
-        document.documentElement.dataset.background = localStorage.getItem("due-background") || "plain";
+        // Grid was replaced by Soft glow (2026-11-22); anyone who had Grid gets Soft glow.
+        const background = localStorage.getItem("due-background");
+        document.documentElement.dataset.background = background === "grid" ? "glow" : background || "plain";
       } catch {
         document.documentElement.dataset.theme = "pastel";
         document.documentElement.dataset.background = "plain";
@@ -55,6 +57,14 @@
           <input id="auth-login" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" />
           <label for="auth-password">Password</label>
           <input id="auth-password" type="password" autocomplete="current-password" />
+          <div id="auth-code-row" class="auth-fields" hidden>
+            <label for="auth-code">6-digit code from your authenticator app</label>
+            <input id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" />
+          </div>
+          <label class="remember-me">
+            <input id="auth-remember" type="checkbox" checked />
+            Remember me on this computer
+          </label>
           <p id="auth-message" class="form-message" role="alert"></p>
           <button id="auth-submit" type="submit" class="primary-button">Sign in</button>
           <button id="auth-forgot" type="button" class="link-button">Forgot password?</button>
@@ -101,29 +111,38 @@
     <main>
       <header class="top-bar">
         <nav class="top-left" aria-label="Move through the calendar">
-          <button id="open-settings" type="button" class="icon-button menu-button" aria-label="Settings">☰</button>
+          <button id="open-settings" type="button" class="icon-button menu-button" aria-label="Settings">
+            <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+          </button>
           <h1>Due Next</h1>
           <div class="mode-switch" role="tablist" aria-label="Calendar or semester">
             <button type="button" class="mode-tab" role="tab" data-mode-tab="calendar" aria-selected="true">📅 Calendar</button>
             <button type="button" class="mode-tab" role="tab" data-mode-tab="semester" aria-selected="false">📊 Semester</button>
           </div>
-          <button id="go-to-today" type="button" class="quiet-button">Today</button>
-          <button id="previous-period" type="button" class="icon-button round">‹</button>
-          <button id="next-period" type="button" class="icon-button round">›</button>
-          <p id="period-label" class="period-label" aria-live="polite"></p>
+          <!-- Kept together, so in a narrow window they move to the next line as one row. -->
+          <div class="period-nav">
+            <button id="go-to-today" type="button" class="quiet-button" title="Go to today (Ctrl+T)" aria-keyshortcuts="Control+T">Today</button>
+            <button id="previous-period" type="button" class="icon-button round">‹</button>
+            <button id="next-period" type="button" class="icon-button round">›</button>
+            <p id="period-label" class="period-label" aria-live="polite"></p>
+          </div>
         </nav>
+        <div id="search-bar" class="search-bar" role="search">
+          <span class="search-icon" aria-hidden="true">🔍</span>
+          <input id="search-input" type="search" placeholder="Search (Ctrl+/)" aria-label="Search tasks, steps, and events" aria-keyshortcuts="Control+/" autocomplete="off" />
+          <div id="search-panel" class="search-panel" hidden>
+            <p id="search-hint" class="step-help" role="status" aria-live="polite"></p>
+            <ul id="search-results" class="search-results"></ul>
+          </div>
+        </div>
         <div class="top-right">
           <button id="open-lock-in" type="button" class="quiet-button">🔒 Lock in</button>
           <button id="open-progress" type="button" class="quiet-button">📈 Progress</button>
           <button id="open-import" type="button" class="quiet-button">⬇ Import</button>
-          <label class="visually-hidden" for="view-select">View</label>
-          <select id="view-select" class="view-select">
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-            <option value="agenda">Agenda</option>
-          </select>
-          <button id="new-task" type="button" class="primary-button">+ New</button>
+          <button id="google-update" type="button" class="quiet-button google-update" hidden>
+            ↻ Update Google <span id="google-update-age" class="google-update-age"></span>
+          </button>
+          <button id="new-task" type="button" class="primary-button" title="New task (Ctrl+N)" aria-keyshortcuts="Control+N">+ New</button>
         </div>
       </header>
 
@@ -150,10 +169,20 @@
         <p id="overdue-empty" class="overdue-empty">Nothing overdue.</p>
       </details>
 
-      <ul id="group-legend" class="group-legend" aria-label="Color key" hidden></ul>
+      <ul id="group-legend" class="group-legend" aria-label="Show one class or group on the calendar" hidden></ul>
 
       <div class="workspace">
         <div class="calendar-area">
+          <!-- Right above the calendar, so the view is chosen next to what it changes. -->
+          <div class="calendar-toolbar">
+            <label class="visually-hidden" for="view-select">View</label>
+            <select id="view-select" class="view-select">
+              <option value="day">Day</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
+              <option value="agenda">Agenda</option>
+            </select>
+          </div>
           <section id="week" class="week-grid" aria-label="This week"></section>
 
           <section id="agenda" class="agenda" aria-label="Coming up" hidden></section>
@@ -201,9 +230,11 @@
         <section id="semester" class="semester" aria-label="Weeks this semester"></section>
       </section>
 
-      <p id="hint" class="hint">Click a day to add a task due then. Click a circle to check a task off, or its name to change it.</p>
+      <p id="hint" class="hint">Click a day to add a task due then. Click a circle to check a task off, or its name to change it. Shortcuts: Ctrl+N new task, Ctrl+/ search, Ctrl+T today.</p>
 
       <p id="toast" class="toast" role="status" aria-live="polite"></p>
+
+      <button id="back-to-top" type="button" class="back-to-top" aria-label="Back to the top" title="Back to the top" hidden>↑</button>
 
       <div id="morning-card" class="morning-card" role="status" hidden>
         <div>
@@ -211,6 +242,19 @@
           <p id="morning-text" class="morning-text"></p>
         </div>
         <button id="morning-dismiss" type="button" class="quiet-button">Got it</button>
+      </div>
+
+      <div id="sunday-card" class="morning-card sunday-card" role="status" hidden>
+        <div class="sunday-body">
+          <p class="morning-title">🗓️ Your week</p>
+          <p id="sunday-summary" class="morning-text"></p>
+          <ul id="sunday-list" class="sunday-list"></ul>
+          <p id="sunday-extra" class="morning-text"></p>
+        </div>
+        <div class="sunday-actions">
+          <button id="sunday-see-week" type="button" class="quiet-button">📊 See the week</button>
+          <button id="sunday-dismiss" type="button" class="quiet-button">Got it</button>
+        </div>
       </div>
     </main>
 
@@ -334,6 +378,7 @@
         </div>
 
         <p id="import-summary" class="missed-details" hidden></p>
+        <p id="import-weights" class="import-weights" hidden></p>
         <div id="import-preview" class="import-preview" hidden>
           <label class="import-row import-select-all"><input id="import-all" type="checkbox" /> Select all</label>
           <ul id="import-list" class="import-list"></ul>
@@ -504,10 +549,51 @@
               <span class="settings-option-name">Dots</span>
               <span class="background-preview" data-background="dots" aria-hidden="true"></span>
             </button>
-            <button type="button" class="settings-option" data-background-choice="grid">
-              <span class="settings-option-name">Grid</span>
-              <span class="background-preview" data-background="grid" aria-hidden="true"></span>
+            <button type="button" class="settings-option" data-background-choice="glow">
+              <span class="settings-option-name">Soft glow</span>
+              <span class="background-preview" data-background="glow" aria-hidden="true"></span>
             </button>
+            </div>
+            <h3 class="settings-page-title">Dark mode</h3>
+            <div class="settings-options">
+              <button type="button" class="settings-option" data-dark-choice="system">
+                <span class="settings-option-name">Match my computer</span>
+              </button>
+              <button type="button" class="settings-option" data-dark-choice="off">
+                <span class="settings-option-name">Off</span>
+              </button>
+              <button type="button" class="settings-option" data-dark-choice="on">
+                <span class="settings-option-name">On</span>
+              </button>
+              <button type="button" class="settings-option" data-dark-choice="night">
+                <span class="settings-option-name">At night</span>
+              </button>
+            </div>
+            <div id="dark-night-times" class="dark-night-times" hidden>
+              <label for="dark-from">Dark from</label>
+              <input id="dark-from" type="time" step="900" />
+              <label for="dark-to">to</label>
+              <input id="dark-to" type="time" step="900" />
+            </div>
+            <h3 class="settings-page-title">Celebrations</h3>
+            <p class="step-help">A little confetti when you check something off.</p>
+            <div class="settings-options">
+              <button type="button" class="settings-option" data-celebrate-choice="on">
+                <span class="settings-option-name">On</span>
+              </button>
+              <button type="button" class="settings-option" data-celebrate-choice="off">
+                <span class="settings-option-name">Off</span>
+              </button>
+            </div>
+            <h3 class="settings-page-title">Holidays</h3>
+            <p class="step-help">Holidays like Thanksgiving and Halloween, shown at the top of their day.</p>
+            <div class="settings-options">
+              <button type="button" class="settings-option" data-holidays-choice="on">
+                <span class="settings-option-name">Show holidays</span>
+              </button>
+              <button type="button" class="settings-option" data-holidays-choice="off">
+                <span class="settings-option-name">Hide holidays</span>
+              </button>
             </div>
           </section>
 
@@ -590,11 +676,48 @@
                 <input id="new-password" type="password" autocomplete="new-password" />
                 <label for="new-password-again">New password again</label>
                 <input id="new-password-again" type="password" autocomplete="new-password" />
+                <div class="two-step-code-field" hidden>
+                  <label for="change-password-code">6-digit code from your authenticator app</label>
+                  <input id="change-password-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" />
+                </div>
                 <p class="step-help">Afterward, other browsers where you're signed in will ask you to sign in again with the new password.</p>
                 <button id="change-password-submit" type="submit" class="primary-button">Change password</button>
                 <p id="change-password-message" class="form-message" role="status" aria-live="polite"></p>
               </form>
             </details>
+            <details id="two-step" class="option-section two-step">
+              <summary>Two-step sign-in</summary>
+              <div class="option-body two-step-body">
+                <p id="two-step-status" class="step-help"></p>
+                <form id="two-step-form" class="change-password-form" novalidate>
+                  <label for="two-step-password">Your password</label>
+                  <input id="two-step-password" type="password" autocomplete="current-password" />
+                  <div class="two-step-code-field" hidden>
+                    <label for="two-step-off-code">6-digit code from your authenticator app</label>
+                    <input id="two-step-off-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" />
+                  </div>
+                  <button id="two-step-submit" type="submit" class="primary-button">Turn on</button>
+                </form>
+                <form id="two-step-setup" class="change-password-form" novalidate hidden>
+                  <p class="step-help">
+                    Open an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, or the
+                    Passwords app on iPhone), add an account, and scan this code.
+                  </p>
+                  <div id="two-step-qr" class="two-step-qr" role="img" aria-label="QR code for your authenticator app"></div>
+                  <p class="step-help">Can't scan? Type this key in the app instead: <code id="two-step-key" class="two-step-key"></code></p>
+                  <label for="two-step-code">Then type the 6-digit code the app shows</label>
+                  <input id="two-step-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" />
+                  <button id="two-step-confirm" type="submit" class="primary-button">Confirm and turn on</button>
+                </form>
+                <p id="two-step-message" class="form-message" role="status" aria-live="polite"></p>
+              </div>
+            </details>
+            <div class="backup">
+              <p class="step-help">
+                Save a copy of everything (tasks, steps, events, groups, and settings) to a file on this computer, just in case.
+              </p>
+              <button id="download-backup" type="button" class="quiet-button">⬇ Download a backup</button>
+            </div>
             <div class="settings-actions">
               <button id="settings-sign-out" type="button" class="quiet-button">Sign out</button>
             </div>
@@ -763,7 +886,7 @@
               <div id="repeat-details" class="option-body" hidden>
                 <div id="repeat-weekdays" class="quick-picks-list" role="group" aria-label="Repeat on these days"></div>
                 <div class="field">
-                  <label for="task-until">Until <span class="optional">(optional, otherwise a year)</span></label>
+                  <label for="task-until">Until <span id="until-default" class="optional">(optional, otherwise a year)</span></label>
                   <input id="task-until" type="date" />
                 </div>
               </div>
@@ -786,8 +909,42 @@
               </button>
             </fieldset>
           </details>
+          <details id="steps-section" class="option-section">
+            <summary>
+              <span class="option-icon" aria-hidden="true">🪜</span>
+              <span id="steps-summary" class="option-summary"></span>
+            </summary>
+            <div class="option-body">
+              <p class="step-help">Break it into smaller pieces, each on its own day. They show on the calendar and on Today.</p>
+              <ul id="step-rows" class="step-rows"></ul>
+              <button id="add-step" type="button" class="quiet-button">+ Add step</button>
+              <button id="suggest-steps" type="button" class="link-button suggest-steps">or suggest some for me</button>
+            </div>
+          </details>
         </div>
 
+        <div id="notes-section" class="form-row">
+          <span class="row-icon" aria-hidden="true">📝</span>
+          <div class="row-content">
+            <textarea
+              id="task-notes"
+              class="row-input task-notes"
+              rows="2"
+              maxlength="1000"
+              placeholder="Notes or links (optional), like the Canvas page"
+              aria-label="Notes or links"
+            ></textarea>
+            <p id="notes-links" class="notes-links" hidden></p>
+          </div>
+        </div>
+        <div id="weight-section" class="form-row">
+          <span class="row-icon" aria-hidden="true">🎯</span>
+          <div class="row-content weight-row">
+            <label for="task-weight">Worth</label>
+            <input id="task-weight" class="weight-input" type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="—" />
+            <span class="weight-hint">% of your grade (optional)</span>
+          </div>
+        </div>
         <div id="estimate-section" class="form-row">
           <span class="row-icon" aria-hidden="true">⏱</span>
           <div class="row-content">

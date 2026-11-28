@@ -46,6 +46,7 @@
         [EVENTS_KEY]: JSON.stringify([event]),
         "due-view": JSON.stringify({ view: "week", dayLayout: "timeline" }),
         "due-morning-shown": today,
+        "due-sunday-shown": today,
         "due-chat-greeting-seen": "true",
       });
 
@@ -182,6 +183,51 @@
         dialog.close();
       });
 
+      check("Checking off a task can be undone", async () => {
+        taskBlock().querySelector(".chip-check").click();
+        assertEqual(saved(STORAGE_KEY)[0].done, true);
+        toast().querySelector(".toast-undo").click();
+        await pause(100);
+        assertEqual(saved(STORAGE_KEY)[0].done, false);
+      });
+
+      check("Deleting a task can be undone", async () => {
+        taskBlock().querySelector(".chip-delete").click();
+        assertEqual(saved(STORAGE_KEY).length, 0);
+        if (!toast().textContent.startsWith("Deleted “Check task”")) throw new Error(`message said “${toast().textContent}”`);
+        toast().querySelector(".toast-undo").click();
+        await pause(100);
+        assertEqual(saved(STORAGE_KEY).map((task) => task.name), ["Check task"]);
+        await waitFor(taskBlock, "Check task back on the calendar");
+      });
+
+      check("Keyboard shortcuts: Ctrl+N opens a new task, Ctrl+/ jumps to search, Ctrl+T goes to today", async () => {
+        const press = (key, target = page().body, ctrlKey = true) => {
+          const { KeyboardEvent } = frame.contentWindow;
+          target.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey, bubbles: true, cancelable: true }));
+        };
+        const dialog = page().getElementById("add-dialog");
+        // A plain N does nothing; Ctrl+N opens the form.
+        press("n", page().body, false);
+        assertEqual(dialog.open, false);
+        press("n");
+        assertEqual([dialog.open, page().getElementById("add-dialog-title").textContent], [true, "New task"]);
+        dialog.close();
+        press("/");
+        const search = page().getElementById("search-input");
+        assertEqual(page().activeElement, search);
+        // In the search box, even Ctrl+N doesn't open a new task.
+        press("n", search);
+        assertEqual(dialog.open, false);
+        search.blur();
+        // The checks are looking at next week, so today's column isn't on screen until T.
+        assertEqual(Boolean(page().querySelector(".week-day-head.is-today")), false);
+        press("t");
+        assertEqual(Boolean(page().querySelector(".week-day-head.is-today")), true);
+        // Back to next week, where the other checks' pretend task is.
+        page().getElementById("next-period").click();
+      });
+
       check("A message with Undo stays up for 10 seconds", async () => {
         scrollToHour(13);
         const block = taskBlock();
@@ -191,6 +237,32 @@
         await waitFor(() => !toast().classList.contains("visible"), "the message close", 15000);
         const seconds = (Date.now() - shownAt) / 1000;
         if (seconds < 9.5 || seconds > 10.6) throw new Error(`it stayed up ${seconds.toFixed(1)} seconds`);
+      });
+
+      check("Dragging a task in Month moves it to the day it's dropped on, keeping its time", async () => {
+        const select = page().getElementById("view-select");
+        select.value = "month";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await pause(100);
+        const chip = [...page().querySelectorAll(".month-day [data-task-id]")].find((item) => item.textContent.includes("Check task"));
+        const cell = page().querySelector(`.month-day[data-date="${thursday}"]`);
+        chip.scrollIntoView({ block: "center" });
+        const from = chip.getBoundingClientRect();
+        const to = cell.getBoundingClientRect();
+        const timeBefore = saved(STORAGE_KEY)[0].time;
+        const [x1, y1] = [from.left + 10, from.top + from.height / 2];
+        const [x2, y2] = [to.left + to.width / 2, to.top + to.height / 2];
+        pointer("pointerdown", chip, x1, y1);
+        for (let step = 1; step <= 6; step++) {
+          pointer("pointermove", page().body, x1 + ((x2 - x1) * step) / 6, y1 + ((y2 - y1) * step) / 6);
+          await pause(16);
+        }
+        pointer("pointerup", page().body, x2, y2);
+        await pause(100);
+        assertEqual([saved(STORAGE_KEY)[0].due, saved(STORAGE_KEY)[0].time], [thursday, timeBefore]);
+        toast().querySelector(".toast-undo").click();
+        await pause(100);
+        assertEqual(saved(STORAGE_KEY)[0].due, wednesday);
       });
 
       const results = document.getElementById("results");

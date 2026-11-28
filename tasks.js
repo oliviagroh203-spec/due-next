@@ -141,16 +141,71 @@ function describeDueDay(task, todayKey) {
 }
 
 // Returns an error message for bad input, or null if the task can be created.
-export function validateTask({ name, due, time }) {
+export function validateTask({ name, due, time, notes, weight }) {
   if (!name || !name.trim()) return "Give the task a name.";
   if (name.trim().length > 120) return "Keep the name under 120 characters.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(due ?? "")) return "Pick a due date.";
   if (Number.isNaN(new Date(`${due}T00:00:00`).getTime())) return "That due date isn't valid.";
   if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return "That time isn't valid.";
+  if ((notes ?? "").trim().length > NOTES_LIMIT) return "Keep notes under 1,000 characters.";
+  if (weight !== undefined && weight !== null && weight !== "" && cleanWeight(weight) === null) {
+    return "Worth should be a percent from 1 to 100.";
+  }
   return null;
 }
 
-export function createTask({ name, course, due, time, reminders = [], repeat = "none", estimateMinutes = 0, groupId = "", customColor = null }) {
+// How much of the grade a task is worth, as a whole percent from 1 to 100, or null if not given.
+// Heavier work ranks higher on Today and in Plan my day, and makes its week count as busier.
+export function cleanWeight(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const percent = Number(value);
+  if (!Number.isFinite(percent) || percent < 1 || percent > 100) return null;
+  return Math.round(percent);
+}
+
+// Heavier first; tasks without a weight keep their order after the ones with one at the same spot.
+export function compareWeight(a, b) {
+  return (b.weight ?? 0) - (a.weight ?? 0);
+}
+
+// Notes on a task: links (like the assignment on Canvas) and short reminders ("chapters 4-6").
+const NOTES_LIMIT = 1000;
+const LINK_PATTERN = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+
+// Notes split into plain text and links, so links can be shown clickable without any HTML from the
+// notes reaching the page: [{ text } | { link }]. Only http and https links count.
+export function notesParts(notes) {
+  const parts = [];
+  let last = 0;
+  for (const match of (notes ?? "").matchAll(LINK_PATTERN)) {
+    if (match.index > last) parts.push({ text: notes.slice(last, match.index) });
+    parts.push({ link: match[0] });
+    last = match.index + match[0].length;
+  }
+  if (last < (notes ?? "").length) parts.push({ text: notes.slice(last) });
+  return parts;
+}
+
+// The first link in a task's notes, or "": what the 🔗 on the calendar opens.
+export function firstLink(notes) {
+  return notesParts(notes).find((part) => part.link)?.link ?? "";
+}
+
+export function createTask({
+  name,
+  course,
+  due,
+  time,
+  reminders = [],
+  repeat = "none",
+  estimateMinutes = 0,
+  groupId = "",
+  customColor = null,
+  steps = [],
+  notes = "",
+  pinned = false,
+  weight = null,
+}) {
   return {
     id: crypto.randomUUID(),
     name: name.trim(),
@@ -162,7 +217,169 @@ export function createTask({ name, course, due, time, reminders = [], repeat = "
     estimateMinutes,
     groupId,
     customColor,
+    steps: cleanSteps(steps),
+    notes: (notes ?? "").trim().slice(0, NOTES_LIMIT),
+    pinned: pinned === true,
+    weight: cleanWeight(weight),
   };
+}
+
+// Pinned tasks (★) sit at the top of Today whenever they're due, until they're checked off or
+// unpinned. Soonest due first.
+export function pinnedTasks(tasks) {
+  return tasks.filter((task) => task.pinned && !task.done).sort((a, b) => a.due.localeCompare(b.due) || compareTimes(a, b));
+}
+
+// Steps break a big task into smaller pieces, each on its own day ("Outline" Mon, "Draft" Wed),
+// shown on the calendar and checked off one at a time: { id, name, date, done }.
+export const MAX_STEPS = 12;
+const STEP_NAME_LIMIT = 80;
+
+function isStep(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.date === "string"
+  );
+}
+
+// Saved or typed steps, trimmed, in day order, at most 12. Anything unreadable is dropped.
+export function cleanSteps(steps) {
+  if (!Array.isArray(steps)) return [];
+  return steps
+    .filter(isStep)
+    .map((step) => ({ id: step.id, name: step.name.trim(), date: step.date, done: step.done === true }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, MAX_STEPS);
+}
+
+// What's wrong with a task's steps, or null if they're fine.
+export function stepsError(steps, due) {
+  for (const step of steps) {
+    if (!step.name.trim()) return "Give each step a name, or remove it with ×.";
+    if (step.name.trim().length > STEP_NAME_LIMIT) return "Keep each step under 80 characters.";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(step.date)) return "Pick a day for each step.";
+    if (step.date > due) return "Each step's day should be on or before the due date.";
+  }
+  return null;
+}
+
+// "1 of 3 steps", or "" for a task without steps.
+export function stepProgress(task) {
+  const steps = task.steps ?? [];
+  if (steps.length === 0) return "";
+  const done = steps.filter((step) => step.done).length;
+  return `${done} of ${steps.length} step${steps.length === 1 ? "" : "s"}`;
+}
+
+// The steps on a day, as { task, step }, from tasks that aren't finished yet.
+export function stepsOn(tasks, dateKey) {
+  return tasks.flatMap((task) => (task.done ? [] : (task.steps ?? []).filter((step) => step.date === dateKey).map((step) => ({ task, step }))));
+}
+
+// Steps still to do from today or earlier, oldest first: what belongs on the Today list.
+export function stepsToDo(tasks, todayKey) {
+  return tasks
+    .flatMap((task) => (task.done ? [] : (task.steps ?? []).filter((step) => !step.done && step.date <= todayKey).map((step) => ({ task, step }))))
+    .sort((a, b) => a.step.date.localeCompare(b.step.date));
+}
+
+// A sensible day for a new step: the day after the last one, or today, but never after the due date.
+export function nextStepDate(steps, due, todayKey) {
+  const after = steps.length > 0 ? addDays(steps.at(-1).date, 1) : todayKey;
+  const start = after < todayKey ? todayKey : after;
+  return start > due ? due : start;
+}
+
+// Suggested steps, chosen from words in the task's name (first match wins). Papers, presentations,
+// and projects come before exams, so "Final project" and "Final paper" aren't treated as exams.
+const STEP_SUGGESTIONS = [
+  { words: /\b(papers?|essays?|reports?|reflections?|writing)\b/, steps: ["Outline", "Draft", "Edit"] },
+  { words: /\b(presentations?|slides|speech)\b/, steps: ["Make slides", "Practice", "Final run-through"] },
+  { words: /\bprojects?\b/, steps: ["Plan", "Build", "Test"] },
+  { words: /\b(exams?|midterms?|finals?|tests?)\b/, steps: ["Review notes", "Practice problems", "Practice test"] },
+  { words: /\bquiz(zes)?\b/, steps: ["Review notes", "Practice problems"] },
+  { words: /\blabs?\b/, steps: ["Read the lab", "Do the lab", "Write it up"] },
+  { words: /\b(homework|hw\s*\d*|problem sets?|psets?|mps?)\b/, steps: ["Start problems", "Finish problems", "Check answers"] },
+];
+const DEFAULT_STEP_NAMES = ["Start", "Keep going", "Finish"];
+
+// Steps to start from, as [{ name, date }]: names from the task's name, days spread from today (or
+// the Start by day, if that's later) to the day before it's due. They only fill the form; nothing
+// is saved until Save, so every one can be changed first.
+// `from` is the earliest day to start, if later than today (Get ahead starts the week before).
+export function suggestSteps({ name, due, estimateMinutes = 0 }, todayKey, { from = "" } = {}) {
+  const text = name.toLowerCase();
+  const names = STEP_SUGGESTIONS.find((suggestion) => suggestion.words.test(text))?.steps ?? DEFAULT_STEP_NAMES;
+  const startBy = startByDate({ due, estimateMinutes });
+  const first = [todayKey, startBy, from].filter(Boolean).sort().at(-1);
+  // Done a day early when there's room; on the due date itself when there isn't.
+  const last = addDays(due, -1) >= first ? addDays(due, -1) : due;
+  const start = first > last ? last : first;
+  const span = daysBetween(start, last);
+  return names.map((stepName, index) => ({
+    name: stepName,
+    date: names.length === 1 ? last : addDays(start, Math.round((index * span) / (names.length - 1))),
+  }));
+}
+
+// Search: every word typed has to appear in the name or class, ignoring capitals.
+// Returns up to `limit` matches as { kind: "task" | "step" | "event", id, taskId, name, detail, date,
+// time }: coming up first (soonest first), then past ones (most recent first).
+export function searchEverything(text, { tasks, events = [] }, todayKey, limit = 20) {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const matches = (...parts) => {
+    const haystack = parts.filter(Boolean).join(" ").toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  };
+  const found = [
+    ...tasks
+      .filter((task) => matches(task.name, task.course))
+      .map((task) => ({ kind: "task", id: task.id, taskId: task.id, name: task.name, detail: task.course, date: task.due, time: task.time })),
+    ...tasks.flatMap((task) =>
+      (task.steps ?? [])
+        .filter((step) => matches(step.name, task.name, task.course))
+        .map((step) => ({ kind: "step", id: step.id, taskId: task.id, name: step.name, detail: task.name, date: step.date, time: "" })),
+    ),
+    ...events
+      .filter((entry) => matches(entry.name))
+      .map((entry) => ({ kind: "event", id: entry.id, taskId: "", name: entry.name, detail: "", date: entry.date, time: entry.start ?? "" })),
+  ];
+  const moment = (item) => `${item.date} ${item.time || "24:00"}`;
+  const upcoming = found.filter((item) => item.date >= todayKey).sort((a, b) => moment(a).localeCompare(moment(b)));
+  const past = found.filter((item) => item.date < todayKey).sort((a, b) => moment(b).localeCompare(moment(a)));
+  return [...upcoming, ...past].slice(0, limit);
+}
+
+// Showing just one class or group on the calendar. A filter is { kind: "course", value } for a
+// class (from the Class box, ignoring capitals and spaces) or { kind: "group", id }.
+const sameCourse = (a, b) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+export function matchesFilter(item, filter) {
+  if (!filter) return true;
+  if (filter.kind === "group") return item.groupId === filter.id;
+  return Boolean((item.course ?? "").trim()) && sameCourse(item.course, filter.value);
+}
+
+// The buttons to choose from: classes in use (A to Z, written the way they were first typed),
+// then groups in use. Only unfinished tasks and events count, so old classes drop off.
+export function filterOptions(tasks, events, groups) {
+  const items = [...tasks.filter((task) => !task.done), ...events];
+  const courses = new Map();
+  for (const item of items) {
+    const course = (item.course ?? "").trim();
+    if (course && !courses.has(course.toLowerCase())) courses.set(course.toLowerCase(), course);
+  }
+  const classOptions = [...courses.values()]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .map((course) => ({ kind: "course", value: course, label: course }));
+  const groupOptions = groups
+    .filter((group) => items.some((item) => item.groupId === group.id))
+    .map((group) => ({ kind: "group", id: group.id, label: group.name, color: group.color }));
+  return [...classOptions, ...groupOptions];
 }
 
 // Events happen at a time (a study group, a club meeting); tasks are due by a time. Events can't be
@@ -333,8 +550,30 @@ export function describeEventReminder(event, now) {
 }
 
 // A changed copy of an event that stays the same event.
+// Changing one copy of a repeating event keeps it in its series, so deleting can still offer the rest.
 export function updateEvent(event, input) {
-  return { ...createEvent(input), id: event.id };
+  return { ...createEvent(input), id: event.id, ...(event.seriesId ? { seriesId: event.seriesId } : {}) };
+}
+
+// Without an end date, a repeating event (a class, a shift) is added for this many days: about a
+// semester, since a class schedule changes each term.
+export const EVENT_REPEAT_HORIZON_DAYS = 16 * 7;
+
+// One event per date; copies share a seriesId so they can be deleted together, like repeating tasks.
+export function createRepeatingEvents(input, repeat) {
+  if (repeat.repeats === "none") return [createEvent(input)];
+  const until = repeat.until || addDays(input.date, EVENT_REPEAT_HORIZON_DAYS - 1);
+  const seriesId = crypto.randomUUID();
+  return repeatDates(input.date, { ...repeat, until }).map((date) => ({ ...createEvent({ ...input, date }), seriesId }));
+}
+
+// The events left after deleting one copy of a repeating event, that copy and every later one, or all.
+export function deleteEventFromSeries(events, event, scope) {
+  return events.filter((other) => {
+    if (other.id === event.id) return false;
+    if (scope === "one" || !event.seriesId || other.seriesId !== event.seriesId) return true;
+    return scope === "following" && other.date < event.date;
+  });
 }
 
 function isEvent(value) {
@@ -459,7 +698,11 @@ export function taskColorIndex(task, groups) {
 // A changed copy of a task: everything from the form is replaced, but it stays the same task:
 // same id, done or not, and still linked to its repeat and to Canvas.
 export function updateTask(task, input) {
-  return { ...task, ...createTask(input), id: task.id, done: task.done };
+  // A change that doesn't mention steps keeps the ones the task has.
+  const steps = input.steps === undefined ? (task.steps ?? []) : cleanSteps(input.steps);
+  const notes = input.notes === undefined ? (task.notes ?? "") : createTask(input).notes;
+  // Pinning is done with the ☆ button, so changing the task in the form keeps it.
+  return { ...task, ...createTask(input), id: task.id, done: task.done, steps, notes, pinned: task.pinned === true };
 }
 
 // "Start by": how long a task will take decides when to begin, working back from the due date.
@@ -556,7 +799,7 @@ export function repeatDates(startKey, { repeats, weekdays = [], until = "" }) {
 // Returns an error message for a repeat that can't be added, or null.
 export function repeatError(due, { repeats, weekdays = [], until = "" }) {
   if (repeats === "none") return null;
-  if (until && until < due) return "The end date has to be on or after the due date.";
+  if (until && until < due) return "The end date has to be on or after the first date.";
   if ((repeats === "weekly" || repeats === "biweekly") && weekdays.length === 0) return "Pick at least one day to repeat on.";
   if (repeatDates(due, { repeats, weekdays, until }).length === 0) return "None of those days come before the end date.";
   return null;
@@ -817,7 +1060,14 @@ export function tasksToPlan(tasks, todayKey, nowTime, skippedIds = []) {
     .filter((task) => !task.done && !skippedIds.includes(task.id))
     .map((task) => ({ task, ...planReason(task, todayKey, nowTime) }))
     .filter(({ task, rank }) => rank < 3 || task.due <= horizon)
-    .sort((a, b) => a.rank - b.rank || a.task.due.localeCompare(b.task.due) || compareTimes(a.task, b.task) || a.task.name.localeCompare(b.task.name));
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        a.task.due.localeCompare(b.task.due) ||
+        compareWeight(a.task, b.task) ||
+        compareTimes(a.task, b.task) ||
+        a.task.name.localeCompare(b.task.name),
+    );
 }
 
 // Fits tasks into free windows from now on. Each gets its estimate (45 minutes if unknown), up to
@@ -1271,12 +1521,225 @@ export function morningSummary(tasks, progress, now, lastShownDate) {
   return `Today: ${counts.map(([count, label]) => `${count} ${label}`).join(", ")}${streak}`;
 }
 
+// The Sunday card: the first time the app opens on a Sunday, what's due this week (Sunday to
+// Saturday). Otherwise null. Returns { due: [unfinished tasks, soonest first], busiest: { date, count }
+// for a day with 2 or more due (or null), big: [exams and projects this week], steps: how many steps
+// are planned this week }.
+export function sundayPlan(tasks, now, lastShownDate) {
+  const todayKey = toDateKey(now);
+  if (now.getDay() !== 0 || lastShownDate === todayKey) return null;
+  const end = addDays(todayKey, 6);
+  const due = tasks
+    .filter((task) => !task.done && task.due >= todayKey && task.due <= end)
+    .sort((a, b) => a.due.localeCompare(b.due) || compareTimes(a, b) || a.name.localeCompare(b.name));
+  const perDay = new Map();
+  for (const task of due) perDay.set(task.due, (perDay.get(task.due) ?? 0) + 1);
+  const [busiestDate, busiestCount] = [...perDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? [];
+  const steps = tasks
+    .filter((task) => !task.done)
+    .flatMap((task) => task.steps ?? [])
+    .filter((step) => !step.done && step.date >= todayKey && step.date <= end).length;
+  return {
+    due,
+    busiest: busiestCount >= 2 ? { date: busiestDate, count: busiestCount } : null,
+    big: due.filter(isBigWork),
+    steps,
+  };
+}
+
+// Finals countdown, at the top of the Semester view. The date is set there ("Finals start"), or
+// guessed from the earliest unfinished task with "final" in its name that isn't a project, paper,
+// or presentation ("CHEM 102 Final" counts; "Final project" doesn't).
+export const FINALS_KEY = "due-finals";
+const FINAL_EXAM_WORDS = /\bfinals?\b/i;
+const NOT_AN_EXAM = /\b(projects?|papers?|essays?|reports?|presentations?|portfolios?)\b/i;
+
+export function guessFinalsDate(tasks, todayKey) {
+  return (
+    tasks
+      .filter((task) => !task.done && task.due >= todayKey && FINAL_EXAM_WORDS.test(task.name) && !NOT_AN_EXAM.test(task.name))
+      .map((task) => task.due)
+      .sort()[0] ?? ""
+  );
+}
+
+// "3 weeks until finals (Dec 11)", "5 days until finals (Dec 11)", "Finals start tomorrow",
+// "Finals start today", or "" once they've started or with no date.
+export function describeFinalsCountdown(finalsKey, todayKey) {
+  if (!finalsKey || finalsKey < todayKey) return "";
+  const days = daysBetween(todayKey, finalsKey);
+  if (days === 0) return "Finals start today";
+  if (days === 1) return "Finals start tomorrow";
+  const date = new Date(`${finalsKey}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (days < 14) return `${days} days until finals (${date})`;
+  return `${Math.floor(days / 7)} weeks until finals (${date})`;
+}
+
+// Dark mode (Settings → Look): "system" follows the computer (the default), "off", "on", or "night",
+// which is dark from one time to another, like 8 PM to 7 AM. Saved as { mode, from, to }.
+export const DARK_KEY = "due-dark";
+export const DARK_MODES = ["system", "off", "on", "night"];
+const DEFAULT_DARK = { mode: "system", from: "20:00", to: "07:00" };
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function cleanDarkSetting(value) {
+  const setting = value && typeof value === "object" ? value : {};
+  return {
+    mode: DARK_MODES.includes(setting.mode) ? setting.mode : DEFAULT_DARK.mode,
+    from: CLOCK.test(setting.from) ? setting.from : DEFAULT_DARK.from,
+    to: CLOCK.test(setting.to) ? setting.to : DEFAULT_DARK.to,
+  };
+}
+
+// Whether Due Next should be dark right now. A night window can cross midnight (8 PM to 7 AM) or
+// not (1 PM to 5 PM); from and to being the same means all day.
+export function isDarkNow(setting, now, computerIsDark) {
+  const { mode, from, to } = cleanDarkSetting(setting);
+  if (mode === "on") return true;
+  if (mode === "off") return false;
+  if (mode === "system") return computerIsDark;
+  const clock = toTimeKey(now);
+  if (from === to) return true;
+  return from < to ? clock >= from && clock < to : clock >= from || clock < to;
+}
+
+// Holidays, shown as all-day items at the top of each day: US holidays plus popular ones (Valentine's
+// Day, Halloween, ...). Worked out from rules, so every year is covered with nothing to download.
+export const HOLIDAYS_KEY = "due-holidays";
+
+const pad = (number) => String(number).padStart(2, "0");
+const dateOf = (year, month, day) => `${year}-${pad(month)}-${pad(day)}`;
+
+// The nth weekday (0 = Sunday) of a month; n = -1 means the last one.
+function nthWeekday(year, month, weekday, n) {
+  if (n > 0) {
+    const first = new Date(year, month - 1, 1).getDay();
+    return dateOf(year, month, 1 + ((weekday - first + 7) % 7) + (n - 1) * 7);
+  }
+  const lastDay = new Date(year, month, 0);
+  return dateOf(year, month, lastDay.getDate() - ((lastDay.getDay() - weekday + 7) % 7));
+}
+
+// Easter Sunday (the Western church's date), by the anonymous Gregorian method.
+function easter(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return dateOf(year, month, day);
+}
+
+export function holidaysIn(year) {
+  return [
+    { date: dateOf(year, 1, 1), name: "New Year's Day" },
+    { date: nthWeekday(year, 1, 1, 3), name: "Martin Luther King Jr. Day" },
+    { date: dateOf(year, 2, 14), name: "Valentine's Day" },
+    { date: nthWeekday(year, 2, 1, 3), name: "Presidents' Day" },
+    { date: dateOf(year, 3, 17), name: "St. Patrick's Day" },
+    { date: easter(year), name: "Easter" },
+    { date: nthWeekday(year, 5, 0, 2), name: "Mother's Day" },
+    { date: nthWeekday(year, 5, 1, -1), name: "Memorial Day" },
+    { date: nthWeekday(year, 6, 0, 3), name: "Father's Day" },
+    { date: dateOf(year, 6, 19), name: "Juneteenth" },
+    { date: dateOf(year, 7, 4), name: "Independence Day" },
+    { date: nthWeekday(year, 9, 1, 1), name: "Labor Day" },
+    { date: nthWeekday(year, 10, 1, 2), name: "Indigenous Peoples' Day" },
+    { date: dateOf(year, 10, 31), name: "Halloween" },
+    { date: dateOf(year, 11, 11), name: "Veterans Day" },
+    { date: nthWeekday(year, 11, 4, 4), name: "Thanksgiving" },
+    { date: dateOf(year, 12, 24), name: "Christmas Eve" },
+    { date: dateOf(year, 12, 25), name: "Christmas" },
+    { date: dateOf(year, 12, 31), name: "New Year's Eve" },
+  ];
+}
+
+const holidaysByYear = new Map();
+
+// The holidays on a day, as all-day calendar entries: { id, name, date, start: "", end: "", holiday: true }.
+export function holidaysOn(dateKey) {
+  const year = Number(dateKey.slice(0, 4));
+  if (!holidaysByYear.has(year)) holidaysByYear.set(year, holidaysIn(year));
+  return holidaysByYear
+    .get(year)
+    .filter((holiday) => holiday.date === dateKey)
+    .map((holiday) => ({ id: `holiday:${holiday.date}:${holiday.name}`, name: holiday.name, date: holiday.date, start: "", end: "", holiday: true }));
+}
+
 // Finding due dates in text, such as a syllabus PDF or a pasted schedule.
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const MONTH_DATE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?/gi;
 const NUMBER_DATE = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?\b/g;
 const CLOCK_TIME = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/i;
+
+// Grade weights from a syllabus's grading breakdown ("Homework 20%", "Midterms (2) 30%", "Final Exam
+// 25%"). Each category's percent is split across that class's assignments of the same kind, so 10
+// homeworks at 20% are 2% each. Kinds are checked in this order, so "Final project" is a project and
+// "Final exam" is the final, not a midterm.
+const GRADE_KINDS = [
+  { kind: "paper", label: "Papers", words: /\b(papers?|essays?|reports?|writing)\b/i },
+  { kind: "presentation", label: "Presentations", words: /\b(presentations?|speech(es)?)\b/i },
+  { kind: "project", label: "Projects", words: /\bprojects?\b/i },
+  { kind: "lab", label: "Labs", words: /\blabs?\b/i },
+  { kind: "final", label: "Final", words: /\bfinals?\b/i },
+  { kind: "midterm", label: "Exams", words: /\b(midterms?|exams?|tests?|hour exams?)\b/i },
+  { kind: "quiz", label: "Quizzes", words: /\bquiz(zes)?\b/i },
+  { kind: "homework", label: "Homework", words: /\b(homeworks?|hw\s*\d*|assignments?|problem sets?|psets?|mps?|machine problems?|worksheets?)\b/i },
+  { kind: "reading", label: "Readings", words: /\b(readings?|reading responses?|reflections?)\b/i },
+];
+
+function gradeKindOf(text) {
+  return GRADE_KINDS.find(({ words }) => words.test(text))?.kind ?? "";
+}
+
+// The breakdown found in a syllabus: [{ kind, label, percent, count }], one per kind (the first line
+// wins). A line counts when it names a kind and has a percent from 1 to 100; letter-grade scales
+// ("A 93%") name no kind, so they're skipped. count is how many there are when the line says so
+// ("Midterms (2)", "3 exams"), or 0.
+export function parseGradeBreakdown(text) {
+  const found = new Map();
+  for (const line of text.split("\n")) {
+    const match = line.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+    if (!match) continue;
+    const percent = Number(match[1]);
+    if (percent < 1 || percent > 100) continue;
+    const kind = gradeKindOf(line.slice(0, match.index) || line);
+    if (!kind || found.has(kind)) continue;
+    const before = line.slice(0, match.index);
+    const stated = before.match(/\((\d{1,2})\)|\b(\d{1,2})\s+(?:midterms?|exams?|tests?|quiz(?:zes)?|homeworks?|labs?|projects?|papers?|essays?)\b/i);
+    const count = stated ? Number(stated[1] ?? stated[2]) : 0;
+    found.set(kind, { kind, label: GRADE_KINDS.find((option) => option.kind === kind).label, percent, count });
+  }
+  return [...found.values()];
+}
+
+// Each item's share of the grade ({ name } items, the new ones and the class's tasks already here),
+// as weights in the same order, or null where the syllabus has nothing for its kind. A final with no
+// "Final" line shares the exams' percent.
+export function gradeWeights(items, breakdown) {
+  const byKind = new Map(breakdown.map((part) => [part.kind, part.percent]));
+  const statedCount = new Map(breakdown.map((part) => [part.kind, part.count ?? 0]));
+  const kindFor = (item) => {
+    const kind = gradeKindOf(item.name);
+    return kind === "final" && !byKind.has("final") ? "midterm" : kind;
+  };
+  const kinds = items.map(kindFor);
+  const counts = new Map();
+  for (const kind of kinds) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  // Split by how many the syllabus says there are, or by how many were found if that's more.
+  const shareOf = (kind) => byKind.get(kind) / Math.max(counts.get(kind), statedCount.get(kind) ?? 0);
+  return kinds.map((kind) => (byKind.has(kind) ? cleanWeight(Math.max(1, shareOf(kind))) : null));
+}
 
 // The class a document is about, from a course code near the top ("Math 220 Calculus" gives "MATH 220").
 export function guessCourse(text) {
@@ -1392,7 +1855,8 @@ export function deleteFromSeries(tasks, task, scope) {
 export function createRepeatingTasks(input, repeat) {
   if (repeat.repeats === "none") return [createTask(input)];
   const seriesId = crypto.randomUUID();
-  return repeatDates(input.due, repeat).map((due) => ({ ...createTask({ ...input, due }), seriesId }));
+  // Steps belong to one due date, so only the first copy gets them.
+  return repeatDates(input.due, repeat).map((due, index) => ({ ...createTask({ ...input, due, steps: index === 0 ? input.steps : [] }), seriesId }));
 }
 
 // Reminder choices: set times before the due time, plus an optional repeating schedule.
@@ -1459,8 +1923,11 @@ function isBigWork(task) {
 
 // How much one task adds to a week or day: 3 for an exam or project, 1 otherwise, plus 1 for every
 // 2 hours estimated.
+// With a grade weight, that decides instead: every 5% counts like one assignment (a 25% exam is 5, a 2%
+// quiz is half of one), between 0.5 and 8.
 function workloadScore(task) {
-  return (isBigWork(task) ? BIG_WORK_WEIGHT : 1) + (task.estimateMinutes ?? 0) / 120;
+  const size = task.weight ? Math.min(Math.max(task.weight / 5, 0.5), 8) : isBigWork(task) ? BIG_WORK_WEIGHT : 1;
+  return size + (task.estimateMinutes ?? 0) / 120;
 }
 
 // A day only counts as the week's heaviest when something stands out: 3 or more things due, or an
@@ -1470,21 +1937,50 @@ const HEAVY_DAY_TASKS = 3;
 // One entry per week from this week through the last week with work due (at least 6 weeks):
 // { start, exams, projects, assignments (each a list of tasks), minutes, score, level, busiest,
 //   days (7 of { date, tasks, score }), heaviest (one of days, or null) }.
-export function semesterWeeks(tasks, todayKey, { workload = DEFAULT_WORKLOAD } = {}) {
+// Minutes of timed events ({ date, start, end }) in each week, by the week's Sunday. All-day events
+// and holidays have no start, so they don't count.
+function eventMinutesByWeek(events) {
+  const byWeek = new Map();
+  for (const event of events) {
+    if (!event.start || !event.end || event.end <= event.start) continue;
+    const week = startOfWeek(event.date);
+    byWeek.set(week, (byWeek.get(week) ?? 0) + minutesOf(event.end) - minutesOf(event.start));
+  }
+  return byWeek;
+}
+
+// A usual week's event minutes: the middle of the weeks that have any (mostly the class schedule).
+function usualWeekMinutes(weekMinutes) {
+  const busyWeeks = weekMinutes.filter((minutes) => minutes > 0).sort((a, b) => a - b);
+  if (busyWeeks.length === 0) return 0;
+  const middle = Math.floor(busyWeeks.length / 2);
+  return busyWeeks.length % 2 ? busyWeeks[middle] : (busyWeeks[middle - 1] + busyWeeks[middle]) / 2;
+}
+
+// Extra event time counts once it's at least an hour beyond a usual week, every 2 hours like one
+// assignment (the same as a time estimate).
+export const EXTRA_EVENT_MINUTES = 60;
+
+export function semesterWeeks(tasks, todayKey, { workload = DEFAULT_WORKLOAD, events = [] } = {}) {
   const { scale } = WORKLOAD_OPTIONS.find((option) => option.id === workload) ?? WORKLOAD_OPTIONS[1];
   const first = startOfWeek(todayKey);
+  const minutesByWeek = eventMinutesByWeek(events);
   const ahead = tasks.filter((task) => !task.done && task.due >= first);
   const lastDue = ahead.reduce((latest, task) => (task.due > latest ? task.due : latest), first);
   const count = Math.min(Math.max(Math.floor(daysBetween(first, lastDue) / 7) + 1, SEMESTER_MIN_WEEKS), SEMESTER_MAX_WEEKS);
-  const weeks = Array.from({ length: count }, (_, index) => {
-    const start = addDays(first, index * 7);
+  const weekStarts = Array.from({ length: count }, (_, index) => addDays(first, index * 7));
+  const usual = usualWeekMinutes(weekStarts.map((start) => minutesByWeek.get(start) ?? 0));
+  const weeks = weekStarts.map((start) => {
     const end = addDays(start, 6);
     const due = ahead.filter((task) => task.due >= start && task.due <= end);
     const projects = due.filter((task) => PROJECT_WORDS.test(task.name));
     const exams = due.filter((task) => !PROJECT_WORDS.test(task.name) && BIG_EXAM_WORDS.test(task.name));
     const assignments = due.filter((task) => !projects.includes(task) && !exams.includes(task));
     const minutes = due.reduce((total, task) => total + (task.estimateMinutes ?? 0), 0);
-    const score = assignments.length + BIG_WORK_WEIGHT * (exams.length + projects.length) + minutes / 120;
+    const eventMinutes = minutesByWeek.get(start) ?? 0;
+    const beyondUsual = eventMinutes - usual;
+    const extraEventMinutes = beyondUsual >= EXTRA_EVENT_MINUTES ? beyondUsual : 0;
+    const score = due.reduce((total, task) => total + workloadScore(task), 0) + extraEventMinutes / 120;
     // "Nothing due" stays as it is; the other levels move with the workload choice.
     const level = SEMESTER_LEVELS.find((option) => score < (option.id === "free" ? option.below : option.below * scale));
     const days = weekDays(start).map((date) => {
@@ -1494,7 +1990,21 @@ export function semesterWeeks(tasks, todayKey, { workload = DEFAULT_WORKLOAD } =
     const top = days.reduce((best, day) => (day.score > best.score ? day : best), days[0]);
     const standsOut = top.tasks.length >= HEAVY_DAY_TASKS || top.tasks.some(isBigWork);
     const heaviest = top.score > 0 && standsOut ? top : null;
-    return { start, exams, projects, assignments, minutes, score, level: level.id, levelLabel: level.label, busiest: false, days, heaviest };
+    return {
+      start,
+      exams,
+      projects,
+      assignments,
+      minutes,
+      eventMinutes,
+      extraEventMinutes,
+      score,
+      level: level.id,
+      levelLabel: level.label,
+      busiest: false,
+      days,
+      heaviest,
+    };
   });
   const busy = weeks.filter((week) => week.level === "busy" || week.level === "very-busy");
   for (const week of [...busy].sort((a, b) => b.score - a.score).slice(0, BUSIEST_WEEKS)) week.busiest = true;
@@ -1594,6 +2104,10 @@ function isTask(value) {
     (value.time === undefined || typeof value.time === "string") &&
     (value.reminders === undefined || Array.isArray(value.reminders)) &&
     (value.repeat === undefined || typeof value.repeat === "string") &&
+    (value.steps === undefined || Array.isArray(value.steps)) &&
+    (value.notes === undefined || typeof value.notes === "string") &&
+    (value.pinned === undefined || typeof value.pinned === "boolean") &&
+    (value.weight === undefined || value.weight === null || typeof value.weight === "number") &&
     (value.seriesId === undefined || typeof value.seriesId === "string") &&
     (value.canvasId === undefined || typeof value.canvasId === "string") &&
     (value.importedOn === undefined || typeof value.importedOn === "string") &&
@@ -1613,7 +2127,7 @@ export function loadTasks(storage) {
   // Tasks saved before reminders existed have none.
   return parsed
     .filter(isTask)
-    .map((task) => ({ ...task, time: task.time ?? "", ...cleanReminders(task), estimateMinutes: task.estimateMinutes ?? 0, groupId: task.groupId ?? "", customColor: task.customColor ?? null }));
+    .map((task) => ({ ...task, time: task.time ?? "", ...cleanReminders(task), estimateMinutes: task.estimateMinutes ?? 0, groupId: task.groupId ?? "", customColor: task.customColor ?? null, steps: cleanSteps(task.steps), notes: task.notes ?? "", pinned: task.pinned === true, weight: cleanWeight(task.weight) }));
 }
 
 export function saveTasks(storage, tasks) {
@@ -1791,6 +2305,38 @@ export function changeGoogleEntry(changes, entry, update) {
 // so other computers can offer to connect too. Google's pass itself is never saved to the account.
 export const GOOGLE_WANTED_KEY = "due-google-wanted";
 
+// The last copy of your Google events, saved to your account so they stay on the calendar after
+// Google's hour-long pass runs out, on every computer. Only what the calendar shows is kept (name,
+// day, time, color), never descriptions, guests, or links. As { updatedAt, start, end, entries }.
+export const GOOGLE_SAVED_KEY = "due-google-saved-v1";
+// After this long, the Update button's "Updated … ago" turns a color as a gentle reminder.
+export const GOOGLE_STALE_MS = 24 * 60 * 60 * 1000;
+
+// "Updated just now", "Updated 5 min ago", "Updated 3 hr ago", "Updated 2 days ago", and whether
+// it's been long enough to remind you.
+export function describeGoogleUpdate(updatedAt, now = Date.now()) {
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  const stale = now - updatedAt >= GOOGLE_STALE_MS;
+  if (minutes < 1) return { text: "Updated just now", stale };
+  if (minutes < 60) return { text: `Updated ${minutes} min ago`, stale };
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return { text: `Updated ${hours} hr ago`, stale };
+  const days = Math.floor(hours / 24);
+  return { text: `Updated ${days} day${days === 1 ? "" : "s"} ago`, stale };
+}
+
+// Of two saved copies of your Google events (as saved text), the one updated last.
+function newerGoogleSaved(first, second) {
+  const updatedAt = (text) => {
+    try {
+      return Number(JSON.parse(text)?.updatedAt) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  return updatedAt(second) > updatedAt(first) ? second : first;
+}
+
 export const SYNCED_KEYS = [
   STORAGE_KEY,
   EVENTS_KEY,
@@ -1799,10 +2345,15 @@ export const SYNCED_KEYS = [
   WORKLOAD_KEY,
   GOOGLE_WANTED_KEY,
   GOOGLE_CHANGES_KEY,
+  GOOGLE_SAVED_KEY,
   GROUPS_KEY,
   PROGRESS_KEY,
   PLAN_KEY,
   QUICK_TIMES_KEY,
+  HOLIDAYS_KEY,
+  DARK_KEY,
+  FINALS_KEY,
+  "due-celebrate",
   "due-theme",
   "due-background",
 ];
@@ -1815,6 +2366,22 @@ export function syncedData(storage) {
     if (value !== null) data[key] = value;
   }
   return data;
+}
+
+// A backup of everything saved to your account (tasks, steps, events, groups, progress, settings) as
+// one readable file: { app, version, savedAt, data: { key: value } }. Values that are JSON are kept
+// as JSON so the file is easy to read; anything else is kept as text.
+export function backupFile(storage, now = new Date()) {
+  const data = {};
+  for (const [key, text] of Object.entries(syncedData(storage))) {
+    try {
+      data[key] = JSON.parse(text);
+    } catch {
+      data[key] = text;
+    }
+  }
+  const backup = { app: "Due Next", version: 1, savedAt: now.toISOString(), data };
+  return { name: `due-next-backup-${toDateKey(now)}.json`, text: JSON.stringify(backup, null, 2) };
 }
 
 function parseList(text) {
@@ -1839,6 +2406,9 @@ export function mergeSyncedData(accountValues, localValues) {
   for (const key of [STORAGE_KEY, GROUPS_KEY, EVENTS_KEY]) {
     if (accountValues[key] === undefined || localValues[key] === undefined) continue;
     merged[key] = JSON.stringify(mergeById(parseList(accountValues[key]), parseList(localValues[key])));
+  }
+  if (accountValues[GOOGLE_SAVED_KEY] !== undefined && localValues[GOOGLE_SAVED_KEY] !== undefined) {
+    merged[GOOGLE_SAVED_KEY] = newerGoogleSaved(accountValues[GOOGLE_SAVED_KEY], localValues[GOOGLE_SAVED_KEY]);
   }
   return merged;
 }
@@ -1918,7 +2488,26 @@ const AUTH_ERROR_MESSAGES = {
   "auth/network-request-failed": "Couldn't reach Due Next. Check your internet and try again.",
   "due/username-not-found": "There's no account with that username. Check the spelling, or create an account.",
   "due/username-taken": "That username is taken. Try another one.",
+  "auth/invalid-verification-code": "That code isn't right. Type the newest 6-digit code from your authenticator app.",
+  "auth/requires-recent-login": "For safety, sign out and back in, then try again.",
+  "auth/unverified-email": "Verify your email first, then try again.",
+  "auth/operation-not-allowed": "Two-step sign-in isn't switched on for Due Next yet.",
+  "auth/admin-restricted-operation": "Two-step sign-in isn't switched on for Due Next yet.",
+  "due/needs-code": "Type the 6-digit code from your authenticator app too.",
 };
+
+// Two-step sign-in codes from an authenticator app are 6 digits; spaces (as some apps show them) are ignored.
+export function cleanTwoStepCode(text) {
+  return text.replace(/\s+/g, "");
+}
+
+// What's wrong with a typed two-step code, or "" if it looks right.
+export function twoStepCodeError(text) {
+  const code = cleanTwoStepCode(text);
+  if (!code) return "Type the 6-digit code from your authenticator app.";
+  if (!/^\d{6}$/.test(code)) return "The code is 6 digits, like 123 456.";
+  return "";
+}
 
 // Sign-in error codes (Firebase's, plus Due Next's own "due/" ones), in plain words.
 export function authErrorMessage(code) {

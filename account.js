@@ -2,14 +2,18 @@
 // The rest of the app (app.js) starts only after you're signed in and your data is in this browser,
 // so it keeps reading and saving with localStorage exactly as before.
 import {
+  DARK_KEY,
+  isDarkNow,
   SYNCED_KEYS,
   authErrorMessage,
+  cleanTwoStepCode,
   mergeSyncedData,
   newLoginError,
   normalizeUsername,
   profileError,
   signInError,
   syncedData,
+  twoStepCodeError,
 } from "./tasks.js";
 
 // Firebase's web settings. These aren't secret: they only say which Firebase project to use.
@@ -35,6 +39,9 @@ const authLogin = document.getElementById("auth-login");
 const authPassword = document.getElementById("auth-password");
 const authMessage = document.getElementById("auth-message");
 const authSubmit = document.getElementById("auth-submit");
+const authCodeRow = document.getElementById("auth-code-row");
+const authCode = document.getElementById("auth-code");
+const authRemember = document.getElementById("auth-remember");
 const createForm = document.getElementById("create-form");
 const createStepText = document.getElementById("create-step");
 const createStepOne = document.getElementById("create-step-one");
@@ -57,6 +64,11 @@ let signingUp = false;
 let signedInWithForm = false;
 let appStarted = false;
 let uploadTimer;
+// "Remember me": your username, kept in this browser after you sign out so you only type your
+// password. It's never synced, and unchecking Remember me forgets it.
+const REMEMBERED_LOGIN_KEY = "due-remembered-login";
+// A sign-in Firebase paused to ask for the two-step code, until the code is typed.
+let waitingForCode = null;
 
 export function currentAccountEmail() {
   return currentUser?.email ?? "";
@@ -67,13 +79,73 @@ export function currentAccountName() {
   return currentUser?.displayName || currentAccountEmail();
 }
 
-// Firebase only lets a password change after checking the current password, so someone at an open
-// laptop can't lock you out. Other browsers signed in to this account are signed out afterward.
-export async function changePassword(current, next) {
+// Two-step sign-in: after the password, a 6-digit code from an authenticator app on your phone.
+// (Firebase calls it multi-factor sign-in with TOTP codes. It needs "Firebase Authentication with
+// Identity Platform" and TOTP switched on for the project; see README.)
+function twoStepFactor() {
   const { auth } = firebase;
-  const credential = auth.EmailAuthProvider.credential(currentUser.email, current);
-  await auth.reauthenticateWithCredential(currentUser, credential);
-  await auth.updatePassword(currentUser, next);
+  const { FACTOR_ID } = auth.TotpMultiFactorGenerator;
+  return auth.multiFactor(currentUser).enrolledFactors.find((factor) => factor.factorId === FACTOR_ID) ?? null;
+}
+
+export function twoStepIsOn() {
+  return Boolean(currentUser && firebase?.auth.TotpMultiFactorGenerator) && twoStepFactor() !== null;
+}
+
+// Finishes a sign-in (or a password check) that Firebase paused to ask for the code.
+async function finishWithCode(paused, code) {
+  const { auth } = firebase;
+  const resolver = auth.getMultiFactorResolver(auth.instance, paused);
+  const hint = resolver.hints.find((other) => other.factorId === auth.TotpMultiFactorGenerator.FACTOR_ID);
+  if (!hint) throw paused;
+  return resolver.resolveSignIn(auth.TotpMultiFactorGenerator.assertionForSignIn(hint.uid, cleanTwoStepCode(code)));
+}
+
+// Firebase only lets account changes happen after checking the password again (and the code, when
+// two-step is on), so someone at an open laptop can't take over the account.
+async function checkItsYou(password, code = "") {
+  const { auth } = firebase;
+  try {
+    await auth.reauthenticateWithCredential(currentUser, auth.EmailAuthProvider.credential(currentUser.email, password));
+  } catch (error) {
+    if (error.code !== "auth/multi-factor-auth-required") throw error;
+    if (!code) throw dueError("due/needs-code");
+    await finishWithCode(error, code);
+  }
+}
+
+// Other browsers signed in to this account are signed out afterward.
+export async function changePassword(current, next, code = "") {
+  await checkItsYou(current, code);
+  await firebase.auth.updatePassword(currentUser, next);
+}
+
+// Step 1 of turning on two-step sign-in. Firebase requires a verified email, so if it isn't yet,
+// this sends the verification link and returns { verifyEmail }. Otherwise it returns the secret
+// for the authenticator app: { secret, link (for the QR code), key (to type in by hand) }.
+export async function startTwoStep(password) {
+  const { auth } = firebase;
+  await auth.reload(currentUser);
+  if (!currentUser.emailVerified) {
+    await auth.sendEmailVerification(currentUser);
+    return { verifyEmail: currentUser.email };
+  }
+  await checkItsYou(password);
+  const session = await auth.multiFactor(currentUser).getSession();
+  const secret = await auth.TotpMultiFactorGenerator.generateSecret(session);
+  return { secret, link: secret.generateQrCodeUrl(currentUser.email, "Due Next"), key: secret.secretKey };
+}
+
+// Step 2: the first code from the app proves it's set up right, and turns two-step on.
+export async function finishTwoStep(secret, code) {
+  const { auth } = firebase;
+  const assertion = auth.TotpMultiFactorGenerator.assertionForEnrollment(secret, cleanTwoStepCode(code));
+  await auth.multiFactor(currentUser).enroll(assertion, "Authenticator app");
+}
+
+export async function turnOffTwoStep(password, code) {
+  await checkItsYou(password, code);
+  await firebase.auth.multiFactor(currentUser).unenroll(twoStepFactor());
 }
 
 // For Settings → Change password when the current one is forgotten: emails a reset link to this account.
@@ -89,7 +161,7 @@ export async function signOutOfDueNext() {
   await firebase.auth.signOut(firebase.auth.instance);
   for (const storage of [localStorage, sessionStorage]) {
     for (const key of Object.keys(storage)) {
-      if (key.startsWith("due-")) storage.removeItem(key);
+      if (key.startsWith("due-") && key !== REMEMBERED_LOGIN_KEY) storage.removeItem(key);
     }
   }
   location.reload();
@@ -143,10 +215,37 @@ function showStatus(text, { canRetry = false } = {}) {
   authRetry.hidden = !canRetry;
 }
 
+function rememberedLogin() {
+  try {
+    return localStorage.getItem(REMEMBERED_LOGIN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// Checked: stay signed in until Sign out, and keep the username here. Unchecked: signed out when the
+// browser closes, and nothing of yours is left behind (for a shared or library computer).
+async function applyRememberMe(login) {
+  const { auth } = firebase;
+  const remember = authRemember.checked;
+  await auth.setPersistence(auth.instance, remember ? auth.browserLocalPersistence : auth.browserSessionPersistence);
+  try {
+    if (remember) localStorage.setItem(REMEMBERED_LOGIN_KEY, login);
+    else localStorage.removeItem(REMEMBERED_LOGIN_KEY);
+  } catch {
+    // Storage is off: the username just isn't filled in next time.
+  }
+}
+
 function showSignIn() {
+  waitingForCode = null;
+  authCodeRow.hidden = true;
+  authCode.value = "";
   showOnly(authForm);
   showMessage(authMessage, "");
-  authLogin.focus();
+  const login = rememberedLogin();
+  if (login && !authLogin.value) authLogin.value = login;
+  (authLogin.value ? authPassword : authLogin).focus();
 }
 
 function showCreateAccount() {
@@ -188,7 +287,10 @@ async function loadAccountData({ keepLocalData }) {
     else localStorage.removeItem(key);
   }
   document.documentElement.dataset.theme = localStorage.getItem("due-theme") || "pastel";
-  document.documentElement.dataset.background = localStorage.getItem("due-background") || "plain";
+  const background = localStorage.getItem("due-background");
+  // Grid was replaced by Soft glow; it's switched over (and saved) when the app starts.
+  document.documentElement.dataset.background = background === "grid" ? "glow" : background || "plain";
+  applyDarkMode();
   if (keepLocalData) await uploadNow();
 }
 
@@ -289,14 +391,34 @@ authForm.addEventListener("submit", async (event) => {
   if (problem) return;
 
   const { auth } = firebase;
+  if (waitingForCode) {
+    const codeProblem = twoStepCodeError(authCode.value);
+    showMessage(authMessage, codeProblem);
+    if (codeProblem) {
+      authCode.focus();
+      return;
+    }
+  }
   authSubmit.disabled = true;
   authSubmit.textContent = "Signing in…";
   signedInWithForm = true;
   try {
-    await auth.signInWithEmailAndPassword(auth.instance, await emailForLogin(login), password);
+    if (waitingForCode) await finishWithCode(waitingForCode, authCode.value);
+    else {
+      await applyRememberMe(login);
+      await auth.signInWithEmailAndPassword(auth.instance, await emailForLogin(login), password);
+    }
   } catch (error) {
     signedInWithForm = false;
-    showMessage(authMessage, authErrorMessage(error.code));
+    if (error.code === "auth/multi-factor-auth-required") {
+      // Password was right; now the code from the authenticator app.
+      waitingForCode = error;
+      authCodeRow.hidden = false;
+      showMessage(authMessage, "Password ✓ Now type the 6-digit code from your authenticator app.", { isInfo: true });
+      authCode.focus();
+    } else {
+      showMessage(authMessage, authErrorMessage(error.code));
+    }
   } finally {
     authSubmit.disabled = false;
     authSubmit.textContent = "Sign in";
@@ -355,6 +477,17 @@ createForm.addEventListener("submit", async (event) => {
   }
 });
 
+// Changing the username or password after the code was asked for starts the sign-in over.
+for (const field of [authLogin, authPassword]) {
+  field.addEventListener("input", () => {
+    if (!waitingForCode) return;
+    waitingForCode = null;
+    authCodeRow.hidden = true;
+    authCode.value = "";
+    showMessage(authMessage, "");
+  });
+}
+
 createBack.addEventListener("click", () => showCreateStep(1));
 document.getElementById("show-create-account").addEventListener("click", showCreateAccount);
 document.getElementById("show-sign-in").addEventListener("click", showSignIn);
@@ -381,5 +514,52 @@ authRetry.addEventListener("click", () => {
   if (currentUser) handleSignedIn(currentUser);
   else start();
 });
+
+// An eye button inside every password box: click to see what you typed, click again to hide it.
+const EYE_OPEN =
+  '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+const EYE_CLOSED =
+  '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+
+function addPasswordEye(input) {
+  const holder = document.createElement("span");
+  holder.className = "password-field";
+  input.replaceWith(holder);
+  const eye = document.createElement("button");
+  eye.type = "button";
+  eye.className = "password-eye";
+  const show = (visible) => {
+    input.type = visible ? "text" : "password";
+    eye.innerHTML = visible ? EYE_CLOSED : EYE_OPEN;
+    eye.setAttribute("aria-pressed", String(visible));
+    eye.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+    eye.title = visible ? "Hide password" : "Show password";
+  };
+  eye.addEventListener("click", () => {
+    show(input.type === "password");
+    input.focus();
+  });
+  // Clearing the form (after changing a password, say) hides it again.
+  input.form?.addEventListener("reset", () => show(false));
+  holder.append(input, eye);
+  show(false);
+}
+
+for (const input of document.querySelectorAll('input[type="password"]')) addPasswordEye(input);
+
+// Dark mode, from Settings → Look. Set here, before signing in, so every screen matches; app.js
+// checks again each minute for "At night".
+export function applyDarkMode() {
+  let setting = null;
+  try {
+    setting = JSON.parse(localStorage.getItem(DARK_KEY) ?? "null");
+  } catch {
+    // Unreadable or no storage: follow the computer.
+  }
+  const computerIsDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.dark = isDarkNow(setting, new Date(), computerIsDark) ? "on" : "off";
+}
+applyDarkMode();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyDarkMode);
 
 start();

@@ -1,4 +1,15 @@
-import { changePassword, currentAccountEmail, currentAccountName, sendPasswordResetToMe, signOutOfDueNext } from "./account.js";
+import {
+  applyDarkMode,
+  changePassword,
+  currentAccountEmail,
+  currentAccountName,
+  finishTwoStep,
+  sendPasswordResetToMe,
+  signOutOfDueNext,
+  startTwoStep,
+  turnOffTwoStep,
+  twoStepIsOn,
+} from "./account.js";
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
@@ -18,10 +29,24 @@ import {
   cleanQuickTimes,
   createRepeatingTasks,
   createTask,
+  MAX_STEPS,
+  suggestSteps,
+  searchEverything,
+  firstLink,
+  notesParts,
+  filterOptions,
+  matchesFilter,
+  compareWeight,
+  nextStepDate,
+  stepProgress,
+  stepsError,
+  stepsOn,
+  stepsToDo,
   createEvent,
   cleanEventReminder,
   DEFAULT_EVENT_REMINDER,
   describeEventReminder,
+  describeGoogleUpdate,
   EVENT_REMINDER_KEY,
   EVENT_REMINDER_OPTIONS,
   eventReminderDue,
@@ -39,6 +64,8 @@ import {
   semesterWeeks,
   authErrorMessage,
   passwordChangeError,
+  backupFile,
+  twoStepCodeError,
   findDuplicateEvent,
   findDuplicateTask,
   DEFAULT_WORKLOAD,
@@ -65,6 +92,8 @@ import {
   PLAN_DAY_START,
   PLAN_PERIODS,
   guessCourse,
+  gradeWeights,
+  parseGradeBreakdown,
   markPastAsDone,
   newCanvasEvents,
   nextGroupColor,
@@ -92,6 +121,17 @@ import {
   loadTasks,
   monthGrid,
   morningSummary,
+  sundayPlan,
+  pinnedTasks,
+  HOLIDAYS_KEY,
+  cleanDarkSetting,
+  DARK_KEY,
+  describeFinalsCountdown,
+  FINALS_KEY,
+  guessFinalsDate,
+  holidaysOn,
+  createRepeatingEvents,
+  deleteEventFromSeries,
   nextUpTask,
   parseTimeInput,
   pastTimeError,
@@ -164,6 +204,12 @@ const overdueEmpty = document.getElementById("overdue-empty");
 const OVERDUE_OPEN_KEY = "due-overdue-open";
 const THEME_KEY = "due-theme";
 const BACKGROUND_KEY = "due-background";
+// Grid was replaced by Soft glow (Olivia found it confusing); move anyone who chose Grid over.
+try {
+  if (localStorage.getItem(BACKGROUND_KEY) === "grid") localStorage.setItem(BACKGROUND_KEY, "glow");
+} catch {
+  // It still shows as Soft glow; it just isn't saved yet.
+}
 const settingsPanel = document.getElementById("settings-panel");
 const themeOptions = [...document.querySelectorAll("[data-theme-choice]")];
 const todayList = document.getElementById("today-list");
@@ -198,6 +244,16 @@ const untilInput = document.getElementById("task-until");
 const repeatsSummary = document.getElementById("repeats-summary");
 const remindersSection = document.getElementById("reminders-section");
 const remindersSummary = document.getElementById("reminders-summary");
+const weightSection = document.getElementById("weight-section");
+const weightInput = document.getElementById("task-weight");
+const notesSection = document.getElementById("notes-section");
+const notesInput = document.getElementById("task-notes");
+const notesLinks = document.getElementById("notes-links");
+const stepsSection = document.getElementById("steps-section");
+const stepsSummary = document.getElementById("steps-summary");
+const stepRows = document.getElementById("step-rows");
+const addStepButton = document.getElementById("add-step");
+const suggestStepsButton = document.getElementById("suggest-steps");
 const groupSection = document.getElementById("group-section");
 const groupSummary = document.getElementById("group-summary");
 const groupOptions = document.getElementById("group-options");
@@ -254,6 +310,8 @@ let missedTotal = 0;
 let missedSingle = false;
 // The task or event being changed in the form, or null when the form is adding a new one.
 let editingTaskId = null;
+// The steps in the open task form, changed in place until Save.
+let formSteps = [];
 let editingEventId = null;
 // Whether the form is adding a "task" (due by a time) or an "event" (happens at a time).
 let formKind = "task";
@@ -356,8 +414,8 @@ function creditCompletion(task) {
   persistProgress();
 }
 
-function toggleDone(task) {
-  task.done = !task.done;
+function setDone(task, done) {
+  task.done = done;
   if (task.done) {
     creditCompletion(task);
   } else {
@@ -366,8 +424,214 @@ function toggleDone(task) {
   }
   persist();
   render();
-  showToast(task.done ? `Checked off “${task.name}”.` : `“${task.name}” is back on your list.`);
 }
+
+// A little celebration: confetti bursts from the circle that was clicked. Short, never in the way of
+// a click, off in Settings → Look → Celebrations, and skipped when the computer asks for less motion.
+const CELEBRATE_KEY = "due-celebrate";
+const CONFETTI_COLORS = ["--c0-edge", "--c1-edge", "--c2-edge", "--c3-edge", "--c4-edge", "--c5-edge", "--accent"];
+const CONFETTI_MS = 1100;
+
+function celebrationsOn() {
+  try {
+    return localStorage.getItem(CELEBRATE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function celebrate(click, { pieces = 26 } = {}) {
+  if (!celebrationsOn() || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // From where the circle was clicked, or the middle of the screen (keyboard, no position).
+  const x = click?.clientX || window.innerWidth / 2;
+  const y = click?.clientY || window.innerHeight / 2;
+  const layer = document.createElement("div");
+  layer.className = "confetti";
+  layer.setAttribute("aria-hidden", "true");
+  const styles = getComputedStyle(document.documentElement);
+  for (let index = 0; index < pieces; index++) {
+    const piece = document.createElement("span");
+    piece.className = "confetti-piece";
+    piece.style.left = `${x}px`;
+    piece.style.top = `${y}px`;
+    piece.style.background = styles.getPropertyValue(CONFETTI_COLORS[index % CONFETTI_COLORS.length]).trim();
+    layer.append(piece);
+    // Up and out in a fan, then falling a little as it fades.
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1;
+    const distance = 50 + Math.random() * 70;
+    const dx = Math.cos(angle) * distance;
+    const dy = Math.sin(angle) * distance;
+    piece.animate(
+      [
+        { transform: "translate(-50%, -50%) rotate(0deg)", opacity: 1 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${Math.random() * 360}deg)`, opacity: 1, offset: 0.6 },
+        { transform: `translate(calc(-50% + ${dx * 1.1}px), calc(-50% + ${dy + 40}px)) rotate(${Math.random() * 720}deg)`, opacity: 0 },
+      ],
+      { duration: CONFETTI_MS, easing: "cubic-bezier(0.2, 0.7, 0.4, 1)" },
+    );
+  }
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), CONFETTI_MS + 100);
+}
+
+// Every check-off and delete comes with Undo, in case of a wrong click.
+function toggleDone(task, click) {
+  setDone(task, !task.done);
+  if (task.done) celebrate(click);
+  showToast(task.done ? `Checked off “${task.name}”.` : `“${task.name}” is back on your list.`, {
+    undo: () => setDone(task, !task.done),
+  });
+}
+
+// One step of a big task, on its own day: the circle checks off just the step, and the name opens
+// the task with its steps showing.
+function renderStepChip(task, step, { late = false } = {}) {
+  const item = document.createElement("li");
+  item.className = `chip step-chip${step.done ? " done" : ""}`;
+  item.dataset.stepOf = task.id;
+  const colorIndex = taskColorIndex(task, groups);
+  if (colorIndex >= 0) item.dataset.color = String(colorIndex);
+
+  const checkButton = document.createElement("button");
+  checkButton.type = "button";
+  checkButton.className = "chip-check";
+  checkButton.setAttribute("aria-pressed", String(step.done));
+  checkButton.setAttribute("aria-label", `${step.done ? "Uncheck" : "Check off"} ${step.name}, a step of ${task.name}`);
+  checkButton.addEventListener("click", (click) => toggleStep(task, step, click));
+  const check = document.createElement("span");
+  check.className = "check";
+  check.setAttribute("aria-hidden", "true");
+  checkButton.append(check);
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "chip-open";
+  open.setAttribute("aria-label", `Change ${task.name} and its steps`);
+  open.addEventListener("click", () => openEditDialog(task, { showSteps: true }));
+  const text = document.createElement("span");
+  text.className = "chip-text";
+  const name = document.createElement("span");
+  name.className = "chip-name";
+  name.textContent = step.name;
+  const meta = document.createElement("span");
+  meta.className = "chip-meta";
+  const from = late ? ` · from ${formatDay(step.date, { weekday: "short" })}` : "";
+  meta.textContent = `Step of ${task.name}${from}`;
+  text.append(name, meta);
+  open.append(text);
+  item.append(checkButton, open);
+  return item;
+}
+
+function toggleStep(task, step, click) {
+  const flip = () => {
+    step.done = !step.done;
+    persist();
+    render();
+  };
+  flip();
+  if (step.done) celebrate(click, { pieces: 14 });
+  showToast(step.done ? `Checked off “${step.name}” · ${task.name}: ${stepProgress(task)}.` : `“${step.name}” is back on your list.`, {
+    undo: flip,
+  });
+}
+
+// Search: type part of a name, pick a match, and the calendar jumps to its day with it highlighted.
+const searchBar = document.getElementById("search-bar");
+const searchPanel = document.getElementById("search-panel");
+const searchInput = document.getElementById("search-input");
+const searchHint = document.getElementById("search-hint");
+const searchResults = document.getElementById("search-results");
+const SEARCH_HIGHLIGHT_MS = 2500;
+
+function searchableEvents() {
+  const google = applyGoogleChanges(eventsNotInTasks(googleCalendarEntries(), tasks), googleChanges);
+  return [...google, ...eventEntries(events, groups)];
+}
+
+function describeFound(item) {
+  const when = item.time ? formatWhen(item.date, item.time) : formatDay(item.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const kind = { task: "Task", step: `Step of ${item.detail}`, event: "Event" }[item.kind];
+  return [kind, item.kind === "task" ? item.detail : "", when].filter(Boolean).join(" · ");
+}
+
+function renderSearch() {
+  const text = searchInput.value.trim();
+  const found = searchEverything(text, { tasks, events: searchableEvents() }, toDateKey(new Date()));
+  searchHint.textContent = !text
+    ? "Type part of a name or class, like HW10 or MATH 220."
+    : found.length === 0
+      ? `Nothing matches “${text}”.`
+      : "";
+  searchResults.replaceChildren(
+    ...found.map((item) => {
+      const row = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "search-result";
+      const name = document.createElement("span");
+      name.className = "search-result-name";
+      name.textContent = item.name;
+      const detail = document.createElement("span");
+      detail.className = "search-result-detail";
+      detail.textContent = describeFound(item);
+      button.append(name, detail);
+      button.addEventListener("click", () => showFound(item));
+      row.append(button);
+      return row;
+    }),
+  );
+}
+
+// Jumps to the match's day and briefly highlights it, so your eye lands on it.
+function closeSearch() {
+  searchPanel.hidden = true;
+}
+
+function showFound(item) {
+  closeSearch();
+  searchInput.value = "";
+  searchInput.blur();
+  if (mode !== "calendar") showMode("calendar");
+  showDate(item.date);
+  const selector =
+    item.kind === "task"
+      ? `[data-task-id="${CSS.escape(item.taskId)}"]`
+      : item.kind === "step"
+        ? `.step-chip[data-step-of="${CSS.escape(item.taskId)}"]`
+        : `[data-entry-id="${CSS.escape(item.id)}"]`;
+  const candidates = [...document.querySelectorAll(`.calendar-area ${selector}, main ${selector}`)].filter(
+    (element) => !element.closest("#today-list, #start-by-list, #overdue") && (item.kind !== "step" || element.querySelector(".chip-name")?.textContent === item.name),
+  );
+  const target = candidates[0];
+  if (!target) return;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.classList.add("search-found");
+  setTimeout(() => target.classList.remove("search-found"), SEARCH_HIGHLIGHT_MS);
+}
+
+function openSearch() {
+  renderSearch();
+  searchPanel.hidden = false;
+}
+
+searchInput.addEventListener("focus", openSearch);
+searchInput.addEventListener("click", openSearch);
+searchInput.addEventListener("input", openSearch);
+// Return picks the first match; Escape closes the matches.
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeSearch();
+    searchInput.blur();
+  }
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  searchResults.querySelector("button")?.click();
+});
+// Clicking anywhere else closes the matches.
+document.addEventListener("pointerdown", (event) => {
+  if (!searchBar.contains(event.target)) closeSearch();
+});
 
 // Deleting a copy of a repeating task first asks which copies to delete.
 const deleteDialog = document.getElementById("delete-dialog");
@@ -377,6 +641,7 @@ function deleteTask(task) {
   if (task.seriesId) {
     taskToDelete = task;
     document.getElementById("delete-title").textContent = `Delete “${task.name}”`;
+    document.getElementById("delete-details").textContent = "This task repeats. Which ones should be deleted?";
     deleteDialog.returnValue = "cancel";
     deleteDialog.showModal();
     return;
@@ -384,20 +649,36 @@ function deleteTask(task) {
   tasks = tasks.filter((other) => other.id !== task.id);
   persist();
   render();
-  showToast(`Deleted “${task.name}”.`);
+  showToast(`Deleted “${task.name}”.`, { undo: () => restoreTasks([task]) });
+}
+
+// Puts deleted tasks back (any that aren't already back), with their steps and progress.
+function restoreTasks(deleted) {
+  const ids = new Set(tasks.map((task) => task.id));
+  tasks.push(...deleted.filter((task) => !ids.has(task.id)));
+  persist();
+  render();
 }
 
 deleteDialog.addEventListener("close", () => {
   const scope = deleteDialog.returnValue;
+  if (eventToDelete) {
+    deleteRepeatingEvent(eventToDelete, scope);
+    eventToDelete = null;
+    return;
+  }
   const task = taskToDelete;
   taskToDelete = null;
   if (!task || scope === "cancel") return;
-  const before = tasks.length;
+  const before = tasks;
   tasks = deleteFromSeries(tasks, task, scope);
+  const deleted = before.filter((other) => !tasks.includes(other));
   persist();
   render();
   const day = formatDay(task.due, { weekday: "short", month: "short", day: "numeric" });
-  showToast(scope === "one" ? `Deleted “${task.name}” on ${day}.` : `Deleted ${before - tasks.length} of “${task.name}”.`);
+  showToast(scope === "one" ? `Deleted “${task.name}” on ${day}.` : `Deleted ${deleted.length} of “${task.name}”.`, {
+    undo: () => restoreTasks(deleted),
+  });
 });
 deleteDialog.addEventListener("click", (event) => {
   if (event.target === deleteDialog) deleteDialog.close();
@@ -437,7 +718,7 @@ function renderChip(task, subtitle, { showRescheduleButton = false, showFocusBut
   } else {
     checkButton.setAttribute("aria-pressed", String(task.done));
     checkButton.setAttribute("aria-label", `${task.done ? "Uncheck" : "Check off"} ${task.name}`);
-    checkButton.addEventListener("click", () => toggleDone(task));
+    checkButton.addEventListener("click", (click) => toggleDone(task, click));
     open.setAttribute("aria-label", `Change ${task.name}`);
     open.addEventListener("click", () => openEditDialog(task));
   }
@@ -453,6 +734,20 @@ function renderChip(task, subtitle, { showRescheduleButton = false, showFocusBut
   name.className = "chip-name";
   name.textContent = task.name;
   text.append(name);
+  if (task.weight && !task.done) {
+    const weight = document.createElement("span");
+    weight.className = "chip-weight";
+    weight.textContent = `${task.weight}%`;
+    weight.title = `Worth ${task.weight}% of your grade`;
+    text.append(weight);
+  }
+  const progressText = stepProgress(task);
+  if (progressText && !task.done) {
+    const progressBadge = document.createElement("span");
+    progressBadge.className = "chip-steps";
+    progressBadge.textContent = progressText;
+    text.append(progressBadge);
+  }
   if (missed && !showRescheduleButton) {
     const badge = document.createElement("span");
     badge.className = "chip-missed";
@@ -501,16 +796,101 @@ function renderChip(task, subtitle, { showRescheduleButton = false, showFocusBut
     focusButton.addEventListener("click", () => openFocusStart(task));
     item.append(focusButton);
   }
+  if (!task.done || task.pinned) item.append(pinButton(task));
+  const link = firstLink(task.notes);
+  if (link) item.append(linkButton(link, task.name));
   item.append(remove);
+  if (task.pinned && !task.done) item.classList.add("pinned");
   return item;
 }
+
+// ☆ pins a task to the top of Today (★) until it's checked off or unpinned.
+function pinButton(task) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chip-star";
+  button.textContent = task.pinned ? "★" : "☆";
+  button.setAttribute("aria-pressed", String(task.pinned === true));
+  button.setAttribute("aria-label", `${task.pinned ? "Unpin" : "Pin"} ${task.name}`);
+  button.title = task.pinned ? "Unpin from the top of Today" : "Pin to the top of Today";
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePin(task);
+  });
+  return button;
+}
+
+function togglePin(task) {
+  task.pinned = !task.pinned;
+  persist();
+  render();
+  showToast(task.pinned ? `Pinned “${task.name}” to the top of Today.` : `Unpinned “${task.name}”.`);
+}
+
+// 🔗 on a task with a link in its notes: one click opens it in a new tab.
+function linkButton(href, taskName) {
+  const anchor = document.createElement("a");
+  anchor.className = "chip-link";
+  anchor.href = href;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  anchor.textContent = "🔗";
+  anchor.title = `Open ${href}`;
+  anchor.setAttribute("aria-label", `Open the link for ${taskName}`);
+  // Opening the link shouldn't also open or drag the task.
+  anchor.addEventListener("click", (event) => event.stopPropagation());
+  return anchor;
+}
+
+// Under the Notes box: the links in it, clickable, so they're one click away from the open task too.
+function renderNotesLinks() {
+  const links = notesParts(notesInput.value).filter((part) => part.link);
+  notesLinks.hidden = links.length === 0;
+  notesLinks.replaceChildren(
+    ...links.flatMap(({ link }, index) => {
+      const anchor = document.createElement("a");
+      anchor.href = link;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.textContent = `🔗 ${link.replace(/^https?:\/\//, "").slice(0, 60)}`;
+      return index === 0 ? [anchor] : [" ", anchor];
+    }),
+  );
+}
+
+notesInput.addEventListener("input", renderNotesLinks);
 
 // The day's events: your own, plus Google's minus any that are already tasks here, as moved or
 // hidden in Due Next.
 function eventsOn(dateKey) {
+  // Showing one class: only your events in it (Google's have no class, so they're hidden too).
+  if (calendarFilter) {
+    const shown = events.filter((event) => matchesFilter(event, calendarFilter));
+    return googleEventsOn(eventEntries(shown, groups), dateKey);
+  }
   const google = applyGoogleChanges(eventsNotInTasks(googleCalendarEntries(), tasks), googleChanges);
-  return googleEventsOn([...google, ...eventEntries(events, groups)], dateKey);
+  const holidays = holidaysShown() ? holidaysOn(dateKey) : [];
+  return googleEventsOn([...holidays, ...google, ...eventEntries(events, groups)], dateKey);
 }
+
+// Holidays show unless they've been turned off in Settings → Look.
+function holidaysShown() {
+  try {
+    return localStorage.getItem(HOLIDAYS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+// Which class or group the calendar is showing, or null for everything. Kept only until the page
+// reloads, so nothing stays hidden by surprise. Today, Overdue, and Start by always show everything.
+let calendarFilter = null;
+
+function calendarTasks() {
+  return calendarFilter ? tasks.filter((task) => matchesFilter(task, calendarFilter)) : tasks;
+}
+
+const sameFilter = (a, b) => Boolean(a && b) && a.kind === b.kind && (a.kind === "group" ? a.id === b.id : a.value.toLowerCase() === b.value.toLowerCase());
 
 // "Moved in Due Next. Google Calendar says 3:00 PM – 4:00 PM on Mon, Nov 9."
 function describeGoogleMove(entry) {
@@ -526,8 +906,20 @@ function renderGoogleEvent(entry, { short = false } = {}) {
   item.className = "google-event";
   const range = entry.end === entry.start ? formatTime(entry.start) : `${formatTime(entry.start)} – ${formatTime(entry.end)}`;
   const longTime = entry.start ? range : "All day";
+  item.dataset.entryId = entry.id;
+  if (entry.holiday) {
+    // Holidays are just shown; there's nothing to open or change.
+    item.classList.add("holiday");
+    item.title = `${entry.name} · holiday`;
+    const name = document.createElement("span");
+    name.className = "google-event-name";
+    name.textContent = entry.name;
+    item.append(name);
+    return item;
+  }
   if (entry.eventId) {
     item.classList.add("due-event");
+    item.dataset.eventId = entry.eventId;
     if (entry.colorIndex >= 0) item.dataset.color = String(entry.colorIndex);
     item.title = [entry.name, longTime, entry.location && `📍 ${entry.location}`, "click to change"].filter(Boolean).join(" · ");
     item.tabIndex = 0;
@@ -601,6 +993,7 @@ const weekColumnLeft = (fraction) => `calc(${WEEK_LABEL_WIDTH} + (100% - ${WEEK_
 
 // A task is a moment, not a stretch of time, so the week draws it half an hour tall.
 const WEEK_TASK_MINUTES = 30;
+const LATEST_BLOCK_START = "23:29";
 
 // "16:30" plus 45 minutes is "17:15". It stops at the end of the day, or with `wrap`, carries on
 // past midnight ("23:30" plus an hour is "00:30").
@@ -668,18 +1061,24 @@ function renderWeekRow(label, days, itemsFor, hour) {
 function renderWeek(todayKey) {
   const days = weekDays(startOfWeek(visibleDate));
   const previousScroll = weekContainer.scrollTop;
-  const dayTasks = new Map(days.map((dateKey) => [dateKey, tasksDueOn(tasks, dateKey)]));
+  const dayTasks = new Map(days.map((dateKey) => [dateKey, tasksDueOn(calendarTasks(), dateKey)]));
   const dayEvents = new Map(days.map((dateKey) => [dateKey, eventsOn(dateKey)]));
 
   const grid = document.createElement("div");
   grid.className = "week-inner";
-  grid.append(
+  // The day names and the All day row (holidays, all-day events, tasks with no time) stay in view
+  // while the hours scroll.
+  const weekTop = document.createElement("div");
+  weekTop.className = "week-top";
+  weekTop.append(
     renderWeekHead(days, todayKey),
     renderWeekRow("All day", days, (dateKey) => [
       ...dayEvents.get(dateKey).filter((entry) => !entry.start).map((entry) => renderGoogleEvent(entry, { short: true })),
       ...dayTasks.get(dateKey).filter((task) => !task.time).map(renderMonthChip),
+      ...stepsOn(calendarTasks(), dateKey).map(({ task, step }) => renderStepChip(task, step)),
     ]),
   );
+  grid.append(weekTop);
   const timedEvents = [...dayEvents.values()].flat().filter((entry) => entry.start);
   const hours = timelineHours([...[...dayTasks.values()].flat(), ...timedEvents.map((entry) => ({ time: entry.start }))]);
   for (const hour of hours) grid.append(renderWeekRow(formatHour(hour), days, () => [], hour));
@@ -692,7 +1091,11 @@ function renderWeek(todayKey) {
     const timedTasks = dayTasks
       .get(dateKey)
       .filter((task) => task.time)
-      .map((task) => ({ task, start: task.time, end: clockAfter(task.time, WEEK_TASK_MINUTES) }));
+      // A task due late at night (11:59 PM) is drawn ending at midnight, so it stays inside the grid.
+      .map((task) => {
+        const start = task.time > LATEST_BLOCK_START ? LATEST_BLOCK_START : task.time;
+        return { task, start, end: clockAfter(start, WEEK_TASK_MINUTES) };
+      });
     const timedEvents = dayEvents.get(dateKey).filter((other) => other.start);
     for (const { entry, column, columns } of eventColumns([...timedEvents, ...timedTasks])) {
       const block = entry.task ? renderMonthChip(entry.task) : renderGoogleEvent(entry);
@@ -745,7 +1148,7 @@ function renderWeek(todayKey) {
   scrollDayToStart = false;
   const firstHour = todayIndex >= 0 ? now.getHours() - 1 : 8;
   const startRow = [...grid.querySelectorAll("[data-hour]")].find((row) => Number(row.dataset.hour) >= firstHour);
-  const headHeight = grid.querySelector(".week-head").offsetHeight;
+  const headHeight = grid.querySelector(".week-top").offsetHeight;
   if (startRow) weekContainer.scrollTop = startRow.offsetTop - headHeight;
 }
 
@@ -766,10 +1169,12 @@ function renderAgenda(todayKey) {
     // All-day events first, then events and tasks by time; tasks due "any time" come last.
     const items = [
       ...eventsOn(dateKey).map((entry) => ({ order: entry.start || "", render: () => renderGoogleEvent(entry) })),
-      ...tasksDueOn(tasks, dateKey).map((task) => ({
+      ...tasksDueOn(calendarTasks(), dateKey).map((task) => ({
         order: task.time || "24:00",
         render: () => renderChip(task, taskDetails(task, { anytimeLabel: true })),
       })),
+      // Steps have a day but no time, so they come after everything else.
+      ...stepsOn(calendarTasks(), dateKey).map(({ task, step }) => ({ order: "25:00", render: () => renderStepChip(task, step) })),
     ].sort((a, b) => a.order.localeCompare(b.order));
     if (items.length === 0) continue;
 
@@ -900,18 +1305,155 @@ function chosenWorkload() {
   }
 }
 
+// Timed events for the Semester view's "beyond a usual week" hours: your own and Google's (as moved or
+// hidden in Due Next). With one class picked, only your events for that class.
+function semesterEvents() {
+  if (calendarFilter) return eventEntries(events.filter((event) => matchesFilter(event, calendarFilter)), groups);
+  return [...applyGoogleChanges(eventsNotInTasks(googleCalendarEntries(), tasks), googleChanges), ...eventEntries(events, groups)];
+}
+
+// "📅 +5 hours of events beyond a usual week"
+function describeExtraEvents(minutes) {
+  const hours = Math.round(minutes / 30) / 2;
+  return `📅 +${hours} hour${hours === 1 ? "" : "s"} of classes and events beyond a usual week`;
+}
+
+// What's due in a week, on its card: "Thu · Midterm 2 · CHEM 102", in day order, exams and
+// projects in bold, up to 8 and then "+3 more".
+const SEMESTER_LIST_LIMIT = 8;
+
+function renderSemesterTasks(week) {
+  const due = week.days.flatMap((day) => [...day.tasks].sort(compareTaskTimes));
+  if (due.length === 0) return null;
+  const big = new Set([...week.exams, ...week.projects]);
+  const list = document.createElement("span");
+  list.className = "semester-tasks";
+  for (const task of due.slice(0, SEMESTER_LIST_LIMIT)) {
+    const line = document.createElement("span");
+    line.className = `semester-task${big.has(task) ? " big" : ""}`;
+    const day = document.createElement("span");
+    day.className = "semester-task-day";
+    day.textContent = formatDay(task.due, { weekday: "short" });
+    line.append(day, [task.name, task.course, stepProgress(task)].filter(Boolean).join(" · "));
+    list.append(line);
+  }
+  if (due.length > SEMESTER_LIST_LIMIT) {
+    const more = document.createElement("span");
+    more.className = "semester-task more";
+    more.textContent = `+${due.length - SEMESTER_LIST_LIMIT} more`;
+    list.append(more);
+  }
+  return list;
+}
+
+// The countdown at the top of the Semester view: "📚 3 weeks until finals (Dec 11) · 2 busy weeks
+// before then", with a date box to set when finals start (otherwise guessed from a "Final" task).
+function finalsDate(todayKey) {
+  let chosen = "";
+  try {
+    chosen = localStorage.getItem(FINALS_KEY) ?? "";
+  } catch {
+    // Fall back to the guess.
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(chosen) ? chosen : guessFinalsDate(tasks, todayKey);
+}
+
+function renderFinalsCountdown(weeks, todayKey) {
+  const finals = finalsDate(todayKey);
+  const box = document.createElement("div");
+  box.className = "finals-countdown";
+  const text = document.createElement("p");
+  text.className = "finals-text";
+  const countdown = describeFinalsCountdown(finals, todayKey);
+  if (countdown) {
+    const busyBefore = weeks.filter((week) => week.start < finals && (week.level === "busy" || week.level === "very-busy")).length;
+    const busyText = busyBefore > 0 ? ` · ${busyBefore} busy week${busyBefore === 1 ? "" : "s"} before then` : "";
+    text.textContent = `📚 ${countdown}${busyText}`;
+  } else {
+    // Finals week (and a bit after): encouragement. Long after: ready for next term's date.
+    const finalsWeek = finals && finals <= todayKey && addDays(finals, 14) >= todayKey;
+    text.textContent = finalsWeek ? "📚 Finals are here. You've got this." : "📚 Set when finals start to see a countdown.";
+  }
+  const label = document.createElement("label");
+  label.className = "finals-date";
+  label.textContent = "Finals start ";
+  const input = document.createElement("input");
+  input.type = "date";
+  input.value = finals;
+  input.addEventListener("change", () => {
+    try {
+      if (input.value) localStorage.setItem(FINALS_KEY, input.value);
+      else localStorage.removeItem(FINALS_KEY);
+    } catch {
+      // It just won't be remembered.
+    }
+    render();
+  });
+  label.append(input);
+  box.append(text, label);
+  return box;
+}
+
+// Get ahead: one click adds suggested steps to the week's exams and projects that don't have any yet,
+// spread from today (or their Start by day) to the day before, so the work starts early. With Undo.
+function renderGetAhead(week) {
+  const big = [...week.exams, ...week.projects].filter((task) => !task.done && (task.steps ?? []).length === 0);
+  if (big.length === 0) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "quiet-button get-ahead";
+  button.textContent = "🪜 Get ahead";
+  button.title = `Add steps to ${big.map((task) => task.name).join(", ")}`;
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const todayKey = toDateKey(new Date());
+    for (const task of big) {
+      // Starting the week before, like the card's tip says (or today, if that's sooner).
+      const steps = suggestSteps(task, todayKey, { from: addDays(task.due, -7) });
+      task.steps = steps.map((step) => ({ id: crypto.randomUUID(), ...step, done: false }));
+    }
+    persist();
+    render();
+    const names = big.map((task) => `“${task.name}”`).join(" and ");
+    showToast(`Added steps to ${names}. They're on your calendar.`, {
+      undo: () => {
+        for (const task of big) task.steps = [];
+        persist();
+        render();
+      },
+    });
+  });
+  return button;
+}
+
+// Tasks with a time first, earliest first; "any time" ones after.
+function compareTaskTimes(a, b) {
+  return (a.time || "24:00").localeCompare(b.time || "24:00");
+}
+
 function renderSemester(todayKey) {
-  const weeks = semesterWeeks(tasks, todayKey, { workload: chosenWorkload() });
+  // Picking a class in the Show row works out each week from just that class, and leaves out the
+  // weeks where it has nothing due.
+  const weeks = semesterWeeks(calendarTasks(), todayKey, { workload: chosenWorkload(), events: semesterEvents() });
+  const shownWeeks = calendarFilter ? weeks.filter((week) => week.days.some((day) => day.tasks.length > 0)) : weeks;
   const most = Math.max(12, ...weeks.map((week) => week.score));
   const busiest = weeks.filter((week) => week.busiest).sort((a, b) => b.score - a.score);
   const summary = document.createElement("p");
   summary.className = "semester-summary";
-  summary.textContent =
-    busiest.length > 0 ? `🔥 Your busiest weeks: ${busiest.map((week) => weekRange(week.start)).join(", ")}.` : "No busy weeks coming up. 🎉";
-  const rows = weeks.map((week, index) => {
-    const row = document.createElement("button");
-    row.type = "button";
+  const chosen = calendarFilter ? (calendarFilter.value ?? groups.find((group) => group.id === calendarFilter.id)?.name ?? "") : "";
+  const busiestText = busiest.map((week) => weekRange(week.start)).join(", ");
+  if (chosen && shownWeeks.length === 0) summary.textContent = `Nothing due for ${chosen} coming up. 🎉`;
+  else if (busiest.length > 0) summary.textContent = `🔥 ${chosen ? `Busiest weeks for ${chosen}` : "Your busiest weeks"}: ${busiestText}.`;
+  else summary.textContent = `No busy weeks${chosen ? ` for ${chosen}` : ""} coming up. 🎉`;
+  const countdown = renderFinalsCountdown(weeks, todayKey);
+  const rows = shownWeeks.map((week) => {
+    const index = weeks.indexOf(week);
+    // A clickable card rather than a <button>, so the Get ahead button can sit inside it.
+    const row = document.createElement("div");
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
     row.className = `semester-week level-${week.level}`;
+    row.dataset.weekStart = week.start;
     row.setAttribute("aria-label", `${weekRange(week.start)}: ${describeSemesterWeek(week)}. Open this week.`);
     const dates = document.createElement("span");
     dates.className = "semester-dates";
@@ -932,6 +1474,14 @@ function renderSemester(todayKey) {
       heaviest.textContent = describeHeaviestDay(week, week.heaviest);
       row.append(heaviest);
     }
+    if (week.extraEventMinutes > 0) {
+      const extra = document.createElement("span");
+      extra.className = "semester-extra-events";
+      extra.textContent = describeExtraEvents(week.extraEventMinutes);
+      row.append(extra);
+    }
+    const weekList = renderSemesterTasks(week);
+    if (weekList) row.append(weekList);
     const advice = semesterAdvice(week, index === 0);
     if (advice) {
       const tip = document.createElement("span");
@@ -939,15 +1489,23 @@ function renderSemester(todayKey) {
       tip.textContent = advice;
       row.append(tip);
     }
-    row.addEventListener("click", () => {
+    const getAhead = renderGetAhead(week);
+    if (getAhead) row.append(getAhead);
+    const openWeek = () => {
       showMode("calendar");
       view = "week";
       saveViewSettings();
       showDate(week.start);
+    };
+    row.addEventListener("click", openWeek);
+    row.addEventListener("keydown", (event) => {
+      if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      openWeek();
     });
     return row;
   });
-  semesterContainer.replaceChildren(summary, ...rows);
+  semesterContainer.replaceChildren(countdown, summary, ...rows);
 }
 
 // Switching shows one part and hides the other; style.css hides the calendar's controls too.
@@ -970,6 +1528,7 @@ const MONTH_CELL_TASKS = 3;
 function renderMonthDay(dateKey, todayKey) {
   const day = document.createElement("div");
   day.className = "month-day";
+  day.dataset.date = dateKey;
   if (dateKey === todayKey) day.classList.add("is-today");
   if (dateKey < todayKey) day.classList.add("is-past");
   if (startOfMonth(dateKey) !== startOfMonth(visibleDate)) day.classList.add("is-other-month");
@@ -978,10 +1537,11 @@ function renderMonthDay(dateKey, todayKey) {
   dateNumber.className = "date-number";
   dateNumber.textContent = String(parseDateKey(dateKey).getDate());
 
-  const dayTasks = tasksDueOn(tasks, dateKey);
+  const dayTasks = tasksDueOn(calendarTasks(), dateKey);
   const items = [
     ...eventsOn(dateKey).map((entry) => () => renderGoogleEvent(entry, { short: true })),
     ...dayTasks.map((task) => () => renderMonthChip(task)),
+    ...stepsOn(calendarTasks(), dateKey).map(({ task, step }) => () => renderStepChip(task, step)),
   ];
   const list = document.createElement("ul");
   list.className = "month-tasks";
@@ -1008,6 +1568,98 @@ function renderMonthDay(dateKey, todayKey) {
     if (event.target === day || event.target === list || event.target === dateNumber) openAddDialog(dateKey);
   });
   return day;
+}
+
+// Month: drag a task (or one of your events) to another day. It keeps its time, a plain click still
+// opens it, and the move has Undo, like dragging in Week. Google events and steps stay put here.
+let monthDrag = null;
+
+monthContainer.addEventListener("pointerdown", (pointer) => {
+  if (pointer.button !== 0 || monthDrag) return;
+  if (pointer.target.closest(".chip-check, .chip-delete, .chip-star, .chip-link, .month-more")) return;
+  const chip = pointer.target.closest(".month-day [data-task-id], .month-day .due-event[data-event-id]");
+  if (!chip) return;
+  const task = chip.dataset.taskId ? tasks.find((other) => other.id === chip.dataset.taskId) : null;
+  const event = chip.dataset.eventId ? events.find((other) => other.id === chip.dataset.eventId) : null;
+  if ((!task && !event) || task?.done || (event && endsNextDay(event))) return;
+  monthDrag = { task, event, chip, x: pointer.clientX, y: pointer.clientY, moved: false, ghost: null, target: null };
+});
+
+document.addEventListener("pointermove", (pointer) => {
+  if (!monthDrag) return;
+  if (!monthDrag.moved && Math.hypot(pointer.clientX - monthDrag.x, pointer.clientY - monthDrag.y) < DRAG_START_PX) return;
+  if (!monthDrag.moved) {
+    monthDrag.moved = true;
+    monthDrag.chip.classList.add("being-dragged");
+    monthDrag.ghost = document.createElement("div");
+    monthDrag.ghost.className = "month-drag-ghost";
+    monthDrag.ghost.textContent = (monthDrag.task ?? monthDrag.event).name;
+    document.body.append(monthDrag.ghost);
+  }
+  monthDrag.ghost.style.left = `${pointer.clientX}px`;
+  monthDrag.ghost.style.top = `${pointer.clientY}px`;
+  const day = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".month-day");
+  if (monthDrag.target !== day) {
+    monthDrag.target?.classList.remove("drop-target");
+    monthDrag.target = day && monthContainer.contains(day) ? day : null;
+    monthDrag.target?.classList.add("drop-target");
+  }
+});
+
+document.addEventListener("pointerup", () => {
+  const drag = monthDrag;
+  monthDrag = null;
+  if (!drag?.moved) return;
+  drag.ghost.remove();
+  drag.target?.classList.remove("drop-target");
+  // The drag ends with a click on whatever is under the pointer; it shouldn't also open it.
+  const swallowClick = (click) => click.stopPropagation();
+  window.addEventListener("click", swallowClick, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener("click", swallowClick, { capture: true }), 0);
+  const day = drag.target?.dataset.date;
+  if (!day) {
+    render();
+    return;
+  }
+  dropOnMonthDay(drag, day);
+});
+
+function dropOnMonthDay({ task, event }, day) {
+  if (task) {
+    if (task.due === day) return render();
+    const problem = pastTimeError(day, task.time, new Date());
+    if (problem) {
+      render();
+      showToast(problem);
+      return;
+    }
+    const before = task.due;
+    task.due = day;
+    persist();
+    render();
+    showToast(`Moved “${task.name}” to ${formatWhen(day, task.time)}.`, {
+      undo: () => {
+        task.due = before;
+        persist();
+        render();
+      },
+    });
+    return;
+  }
+  if (event.date === day) return render();
+  const before = event.date;
+  event.date = day;
+  persistEvents();
+  forgetTrip(event.id);
+  render();
+  showToast(`Moved “${event.name}” to ${formatEventWhen(event)}.`, {
+    undo: () => {
+      event.date = before;
+      persistEvents();
+      forgetTrip(event.id);
+      render();
+    },
+  });
 }
 
 function renderMonth(todayKey) {
@@ -1072,14 +1724,17 @@ function addPlanBlocksToRow(row, hour) {
   }
 }
 
-function renderTimeline(dayTasks, dayEvents, isToday) {
+function renderTimeline(dayTasks, dayEvents, daySteps, isToday) {
   const timeline = document.createElement("div");
   timeline.className = "timeline";
 
   const allDay = dayEvents.filter((entry) => !entry.start);
-  if (allDay.length > 0) {
+  if (allDay.length > 0 || daySteps.length > 0) {
     const row = renderTimelineRow("All day", []);
-    row.querySelector(".timeline-tasks").append(...allDay.map((entry) => renderGoogleEvent(entry)));
+    row.querySelector(".timeline-tasks").append(
+      ...allDay.map((entry) => renderGoogleEvent(entry)),
+      ...daySteps.map(({ task, step }) => renderStepChip(task, step)),
+    );
     timeline.append(row);
   }
 
@@ -1440,7 +2095,7 @@ googleEventDialog.addEventListener("click", (event) => {
   if (event.target === googleEventDialog) googleEventDialog.close();
 });
 
-function renderDayList(dayTasks, dayEvents, nowTime) {
+function renderDayList(dayTasks, dayEvents, daySteps, nowTime) {
   const wrapper = document.createElement("div");
   wrapper.className = "day-list-view";
 
@@ -1452,10 +2107,18 @@ function renderDayList(dayTasks, dayEvents, nowTime) {
     wrapper.append(events);
   }
 
+  if (daySteps.length > 0) {
+    const steps = document.createElement("ul");
+    steps.className = "day-list day-steps";
+    steps.setAttribute("aria-label", "Steps for this day");
+    steps.append(...daySteps.map(({ task, step }) => renderStepChip(task, step)));
+    wrapper.append(steps);
+  }
+
   if (dayTasks.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-day";
-    empty.textContent = "Nothing due this day. Click + New to add a task or event.";
+    empty.textContent = daySteps.length > 0 ? "Nothing due this day." : "Nothing due this day. Click + New to add a task or event.";
     wrapper.append(empty);
     return wrapper;
   }
@@ -1493,14 +2156,15 @@ function startingHour(dayTasks, isToday) {
 }
 
 function renderDayView(todayKey) {
-  const dayTasks = tasksDueOn(tasks, visibleDate);
+  const dayTasks = tasksDueOn(calendarTasks(), visibleDate);
   const dayEvents = eventsOn(visibleDate);
+  const daySteps = stepsOn(calendarTasks(), visibleDate);
   const isToday = visibleDate === todayKey;
   const previousScroll = dayContent.firstElementChild?.scrollTop ?? 0;
   const content =
     dayLayout === "timeline"
-      ? renderTimeline(dayTasks, dayEvents, isToday)
-      : renderDayList(dayTasks, dayEvents, isToday ? toTimeKey(new Date()) : null);
+      ? renderTimeline(dayTasks, dayEvents, daySteps, isToday)
+      : renderDayList(dayTasks, dayEvents, daySteps, isToday ? toTimeKey(new Date()) : null);
   dayContent.replaceChildren(content);
   if (dayLayout === "timeline") {
     placeTimelineEvents(content);
@@ -1548,27 +2212,41 @@ function renderTimeToStart(toStart, todayKey) {
   return [heading, ...chips];
 }
 
-// Today's to-do list beside the calendar: missed tasks first (in red), then everything due today,
-// then work due later whose day to begin has arrived.
+// Today's to-do list beside the calendar: pinned tasks (★) first, then missed tasks (in red), then
+// everything due today, then work due later whose day to begin has arrived.
 function renderTodayList(todayKey) {
   const nowTime = toTimeKey(new Date());
-  const missed = groupTasks(tasks, todayKey, nowTime).overdue;
-  const dueToday = tasksDueOn(tasks, todayKey).filter((task) => !missed.includes(task));
-  const toStart = tasksToStart(tasks, todayKey);
-  const toDo = [...missed, ...dueToday, ...toStart];
+  const pinned = pinnedTasks(tasks);
+  const notPinned = (task) => !pinned.includes(task);
+  // Within each part, heavier work (a bigger grade weight) comes first.
+  const missed = groupTasks(tasks, todayKey, nowTime).overdue.filter(notPinned).sort(compareWeight);
+  const dueToday = tasksDueOn(tasks, todayKey)
+    .filter((task) => !missed.includes(task) && notPinned(task))
+    .sort((a, b) => Number(a.done) - Number(b.done) || compareWeight(a, b));
+  const toStart = tasksToStart(tasks, todayKey).filter(notPinned).sort(compareWeight);
+  // Steps for today, plus earlier ones not checked off yet; checked-off ones from today stay, crossed out.
+  const todaySteps = [
+    ...stepsToDo(tasks, todayKey),
+    ...stepsOn(tasks, todayKey).filter(({ step }) => step.done),
+  ];
+  const toDo = [...pinned, ...missed, ...dueToday, ...toStart];
 
   todayList.replaceChildren(
+    ...pinned.map((task) =>
+      renderChip(task, [task.course, `Due ${describeDue(task, todayKey)}`].filter(Boolean).join(" · "), { showFocusButton: true }),
+    ),
     ...missed.map((task) =>
       renderChip(task, [task.course, `Due ${describeDue(task, todayKey)}`].filter(Boolean).join(" · "), { showFocusButton: true }),
     ),
     ...dueToday.map((task) => renderChip(task, taskDetails(task, { anytimeLabel: true }), { showFocusButton: true })),
+    ...todaySteps.map(({ task, step }) => renderStepChip(task, step, { late: step.date < todayKey })),
     ...renderTimeToStart(toStart, todayKey),
   );
-  todayEmpty.hidden = toDo.length > 0;
-  const left = toDo.filter((task) => !task.done).length;
+  todayEmpty.hidden = toDo.length + todaySteps.length > 0;
+  const left = toDo.filter((task) => !task.done).length + todaySteps.filter(({ step }) => !step.done).length;
   const date = formatDay(todayKey, { weekday: "long", month: "short", day: "numeric" });
   todaySummary.textContent =
-    toDo.length === 0 ? date : left === 0 ? `${date} · all done ✓` : `${date} · ${left} left`;
+    toDo.length + todaySteps.length === 0 ? date : left === 0 ? `${date} · all done ✓` : `${date} · ${left} left`;
 }
 
 // The Start by list: tasks with a time estimate whose day to begin is still ahead.
@@ -1592,15 +2270,37 @@ function groupDot(color) {
 }
 
 // The color key lists only groups that have a task, so unused ones don't add clutter.
+// The row of classes and groups under Overdue: click one to see only its work on the calendar,
+// All (or the same one again) to see everything.
 function renderGroupLegend() {
-  const inUse = groups.filter((group) => tasks.some((task) => task.groupId === group.id));
-  groupLegend.hidden = inUse.length === 0;
+  const options = filterOptions(tasks, events, groups);
+  // A class whose last task was finished or deleted while chosen: back to everything.
+  if (calendarFilter && !options.some((option) => sameFilter(option, calendarFilter))) calendarFilter = null;
+  groupLegend.hidden = options.length === 0;
+  const choose = (filter) => {
+    calendarFilter = filter;
+    render();
+  };
+  const button = (label, filter, color) => {
+    const item = document.createElement("li");
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "filter-choice";
+    const chosen = filter ? sameFilter(filter, calendarFilter) : !calendarFilter;
+    choice.setAttribute("aria-pressed", String(chosen));
+    if (color !== undefined) choice.append(groupDot(color));
+    choice.append(label);
+    choice.addEventListener("click", () => choose(chosen && filter ? null : filter));
+    item.append(choice);
+    return item;
+  };
+  const note = document.createElement("li");
+  note.className = "filter-note";
+  note.textContent = calendarFilter ? "Showing only:" : "Show:";
   groupLegend.replaceChildren(
-    ...inUse.map((group) => {
-      const item = document.createElement("li");
-      item.append(groupDot(group.color), group.name);
-      return item;
-    }),
+    note,
+    button("All", null),
+    ...options.map((option) => button(option.label, option, option.color)),
   );
 }
 
@@ -1615,7 +2315,7 @@ function renderControls() {
 
 function render() {
   // Redrawing mid-drag would pull the grid out from under the pointer; it redraws on drop instead.
-  if (gridDrag) return;
+  if (gridDrag || monthDrag?.moved) return;
   const todayKey = toDateKey(new Date());
   renderControls();
   renderPeriodLabel();
@@ -1690,7 +2390,27 @@ function googleOfferDismissed() {
   }
 }
 
+// The quiet Update button: shows how fresh your saved Google events are, and turns a color after a day.
+const googleUpdateButton = document.getElementById("google-update");
+const googleUpdateAge = document.getElementById("google-update-age");
+
+function renderGoogleUpdate() {
+  const { status, updatedAt } = googleCalendarStatus();
+  googleUpdateButton.hidden = !updatedAt || status === "off";
+  if (googleUpdateButton.hidden) return;
+  const { text, stale } = describeGoogleUpdate(updatedAt);
+  googleUpdateAge.textContent = status === "loading" ? "· Updating…" : `· ${text}`;
+  googleUpdateButton.classList.toggle("stale", stale && status !== "loading");
+  googleUpdateButton.disabled = status === "loading";
+  googleUpdateButton.title = "Get the latest from Google Calendar";
+}
+
+googleUpdateButton.addEventListener("click", () => connectGoogle());
+// Keeps "Updated … ago" honest while Due Next sits open.
+setInterval(renderGoogleUpdate, 60_000);
+
 function renderGoogleBanner() {
+  renderGoogleUpdate();
   const { status } = googleCalendarStatus();
   const offering = status === "suggest" && !googleOfferDismissed();
   googleBanner.hidden = !offering && status !== "reconnect" && status !== "error";
@@ -2149,6 +2869,72 @@ function checkedLabels(container) {
 }
 
 // The closed Repeats and Reminders rows show what is chosen: "Every week on Tue, Thu", "1 day, 1 hour before".
+// The task form's Steps: a row per step (name, day, ×), and + Add step.
+function renderStepRows() {
+  stepRows.replaceChildren(
+    ...formSteps.map((step, index) => {
+      const row = document.createElement("li");
+      row.className = "step-row";
+      const name = document.createElement("input");
+      name.type = "text";
+      name.value = step.name;
+      name.placeholder = "Like Outline or Draft";
+      name.maxLength = 80;
+      name.setAttribute("aria-label", `Step ${index + 1} name`);
+      name.addEventListener("input", () => {
+        step.name = name.value;
+      });
+      const day = document.createElement("input");
+      day.type = "date";
+      day.value = step.date;
+      if (dueInput.value) day.max = dueInput.value;
+      day.setAttribute("aria-label", `Step ${index + 1} day`);
+      day.addEventListener("change", () => {
+        step.date = day.value;
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon-button step-remove";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `Remove step ${index + 1}`);
+      remove.addEventListener("click", () => {
+        formSteps.splice(index, 1);
+        renderStepRows();
+        renderOptionSummaries();
+      });
+      if (step.done) row.classList.add("done");
+      row.append(name, day, remove);
+      return row;
+    }),
+  );
+  addStepButton.disabled = formSteps.length >= MAX_STEPS;
+  addStepButton.textContent = formSteps.length >= MAX_STEPS ? `Up to ${MAX_STEPS} steps` : "+ Add step";
+  // Suggestions are just a starting point, offered quietly while there are no steps yet.
+  suggestStepsButton.hidden = formSteps.length > 0;
+}
+
+suggestStepsButton.addEventListener("click", () => {
+  const todayKey = toDateKey(new Date());
+  if (!nameInput.value.trim() || !dueInput.value) {
+    showFormMessage("Type the task's name and due date first, so the steps fit it.");
+    return;
+  }
+  const suggested = suggestSteps({ name: nameInput.value, due: dueInput.value, estimateMinutes: chosenEstimate() }, todayKey);
+  formSteps = suggested.map((step) => ({ id: crypto.randomUUID(), ...step, done: false }));
+  renderStepRows();
+  renderOptionSummaries();
+  showFormMessage("Here are some steps to start from. Change any name or day, remove any with ×, then Save.", { info: true });
+  stepRows.querySelector("input").focus();
+});
+
+addStepButton.addEventListener("click", () => {
+  const todayKey = toDateKey(new Date());
+  formSteps.push({ id: crypto.randomUUID(), name: "", date: nextStepDate(formSteps, dueInput.value || todayKey, todayKey), done: false });
+  renderStepRows();
+  renderOptionSummaries();
+  stepRows.lastElementChild.querySelector("input").focus();
+});
+
 function renderOptionSummaries() {
   const group = groups.find((other) => other.id === chosenGroupId());
   const customColor = chosenCustomColor();
@@ -2177,6 +2963,12 @@ function renderOptionSummaries() {
   if (reminderTimes.length > 0) parts.push(`${reminderTimes.join(", ")} before`);
   if (reminderRepeat.id !== "none") parts.push(reminderRepeat.label);
   remindersSummary.textContent = parts.length > 0 ? parts.join(" · ") : "No reminders";
+
+  const doneSteps = formSteps.filter((step) => step.done).length;
+  stepsSummary.textContent =
+    formSteps.length === 0
+      ? "Break into steps"
+      : `${formSteps.length} step${formSteps.length === 1 ? "" : "s"}${doneSteps ? ` · ${doneSteps} done` : ""}`;
 }
 
 form.addEventListener("change", renderOptionSummaries);
@@ -2517,11 +3309,16 @@ function setFormKind(kind) {
   eventTimesLine.hidden = eventAllDay.checked;
   showNextDayNote();
   remindersSection.hidden = isEvent;
+  stepsSection.hidden = isEvent;
+  notesSection.hidden = isEvent;
+  weightSection.hidden = isEvent;
   estimateSection.hidden = isEvent;
   eventReminderRow.hidden = !isEvent;
   eventLocationRow.hidden = !isEvent;
-  // Changing a repeating task changes just that copy, so the repeat itself can't be changed then.
-  repeatsSection.hidden = isEvent || editingTaskId !== null;
+  // New tasks and events can repeat (a class every Mon, Wed, Fri). Changing one copy changes just
+  // that copy, so the repeat itself can't be changed then.
+  repeatsSection.hidden = editing;
+  document.getElementById("until-default").textContent = isEvent ? "(optional, otherwise 16 weeks)" : "(optional, otherwise a year)";
   updateBusyWeekNote();
 }
 
@@ -2593,6 +3390,10 @@ function openAddDialog(dateKey) {
   setFormKind("task");
   repeatsSection.open = false;
   remindersSection.open = false;
+  stepsSection.open = false;
+  formSteps = [];
+  renderStepRows();
+  renderNotesLinks();
   groupSection.open = false;
   groupMessage.textContent = "";
   renderGroupOptions("");
@@ -2608,7 +3409,7 @@ function openAddDialog(dateKey) {
 }
 
 // The same form as New task, filled in with the task so any part of it can be changed.
-function openEditDialog(task) {
+function openEditDialog(task, { showSteps = false } = {}) {
   closeQuickTimesEditor();
   editingTaskId = task.id;
   editingEventId = null;
@@ -2631,6 +3432,12 @@ function openEditDialog(task) {
   repeatSelect.value = task.repeat;
   estimateSelect.value = String(task.estimateMinutes);
   remindersSection.open = false;
+  formSteps = (task.steps ?? []).map((step) => ({ ...step }));
+  stepsSection.open = showSteps;
+  renderStepRows();
+  notesInput.value = task.notes ?? "";
+  renderNotesLinks();
+  weightInput.value = task.weight ?? "";
   groupSection.open = false;
   groupMessage.textContent = "";
   renderGroupOptions(task.groupId);
@@ -2663,6 +3470,7 @@ function openEditEvent(event) {
   placeSuggestions.hidden = true;
   showChosenPlace(event.place);
   setFormKind("event");
+  showFormMessage(event.seriesId ? "This is one of a repeating event. Changes apply to this one only." : "", { info: true });
   groupSection.open = false;
   groupMessage.textContent = "";
   renderGroupOptions(event.groupId);
@@ -2709,18 +3517,33 @@ function saveEventFromForm() {
     return;
   }
   const edited = events.find((other) => other.id === editingEventId);
+  const repeat = chosenRepeat();
+  if (!edited) {
+    const repeatProblem = repeatError(input.date, repeat);
+    if (repeatProblem) {
+      showFormMessage(repeatProblem);
+      return;
+    }
+  }
   const existing = edited ? null : findDuplicateEvent(events, input);
   if (existing && askAboutDuplicate(`You already have “${existing.name}” on ${formatEventWhen(existing)}. Add another one?`, () => openEditEvent(existing))) {
     return;
   }
-  const saved = edited ? Object.assign(edited, updateEvent(edited, input)) : createEvent(input);
-  if (!edited) events.push(saved);
+  const newEvents = edited ? [] : createRepeatingEvents(input, repeat);
+  const saved = edited ? Object.assign(edited, updateEvent(edited, input)) : newEvents[0];
+  events.push(...newEvents);
   persistEvents();
   forgetTrip(saved.id);
   addDialog.close();
   if (view === "month") render();
   else showDate(saved.date);
-  showToast(`${edited ? "Saved" : "Added"} “${saved.name}” for ${formatEventWhen(saved)}.`);
+  if (newEvents.length > 1) {
+    const repeatLabel = TASK_REPEAT_OPTIONS.find((option) => option.id === repeat.repeats).label.toLowerCase();
+    const lastDate = formatDay(newEvents.at(-1).date, { month: "short", day: "numeric", year: "numeric" });
+    showToast(`Added “${saved.name}” ${repeatLabel}, ${newEvents.length} times through ${lastDate}.`);
+  } else {
+    showToast(`${edited ? "Saved" : "Added"} “${saved.name}” for ${formatEventWhen(saved)}.`);
+  }
   if (eventReminderSelect.value !== "none" && notificationsSupported() && Notification.permission === "default") {
     Notification.requestPermission().then(render);
   }
@@ -2816,21 +3639,46 @@ async function updateTrips(now) {
   }
 }
 
-deleteEventButton.addEventListener("click", () => {
-  const before = events;
-  const deleted = events.find((event) => event.id === editingEventId);
-  events = events.filter((event) => event.id !== editingEventId);
+// Puts deleted events back (any that aren't already back).
+function restoreEvents(deleted) {
+  const ids = new Set(events.map((event) => event.id));
+  events.push(...deleted.filter((event) => !ids.has(event.id)));
   persistEvents();
-  addDialog.close();
   render();
-  if (!deleted) return;
-  showToast(`Deleted “${deleted.name}”.`, {
-    undo: () => {
-      events = before;
-      persistEvents();
-      render();
-    },
+}
+
+// A repeating event first asks which copies to delete, like a repeating task.
+let eventToDelete = null;
+
+function deleteRepeatingEvent(event, scope) {
+  if (scope === "cancel") return;
+  const before = events;
+  events = deleteEventFromSeries(events, event, scope);
+  const deleted = before.filter((other) => !events.includes(other));
+  persistEvents();
+  render();
+  const day = formatDay(event.date, { weekday: "short", month: "short", day: "numeric" });
+  showToast(scope === "one" ? `Deleted “${event.name}” on ${day}.` : `Deleted ${deleted.length} of “${event.name}”.`, {
+    undo: () => restoreEvents(deleted),
   });
+}
+
+deleteEventButton.addEventListener("click", () => {
+  const deleted = events.find((event) => event.id === editingEventId);
+  addDialog.close();
+  if (!deleted) return;
+  if (deleted.seriesId) {
+    eventToDelete = deleted;
+    document.getElementById("delete-title").textContent = `Delete “${deleted.name}”`;
+    document.getElementById("delete-details").textContent = "This event repeats. Which ones should be deleted?";
+    deleteDialog.returnValue = "cancel";
+    deleteDialog.showModal();
+    return;
+  }
+  events = events.filter((event) => event.id !== deleted.id);
+  persistEvents();
+  render();
+  showToast(`Deleted “${deleted.name}”.`, { undo: () => restoreEvents([deleted]) });
 });
 
 form.addEventListener("submit", (event) => {
@@ -2855,11 +3703,20 @@ form.addEventListener("submit", (event) => {
     estimateMinutes: chosenEstimate(),
     groupId: chosenGroupId(),
     customColor: chosenCustomColor(),
+    steps: formSteps,
+    notes: notesInput.value,
+    weight: weightInput.value,
   };
   const error = validateTask(input);
   if (error) {
     showFormMessage(error);
     (input.name.trim() ? dueInput : nameInput).focus();
+    return;
+  }
+  const stepProblem = stepsError(formSteps, input.due);
+  if (stepProblem) {
+    showFormMessage(stepProblem);
+    stepsSection.open = true;
     return;
   }
 
@@ -3155,6 +4012,8 @@ missedDialog.addEventListener("click", (event) => {
 // Picks are rebuilt only when the date is typed, so tapping "Tomorrow 9 AM" doesn't reshuffle them.
 dueInput.addEventListener("change", renderQuickPicks);
 dueInput.addEventListener("change", updateBusyWeekNote);
+// Step days can't be after the due date, so their pickers follow it.
+dueInput.addEventListener("change", renderStepRows);
 dueInput.addEventListener("input", updateBusyWeekNote);
 
 document.getElementById("cancel-add").addEventListener("click", () => addDialog.close());
@@ -3174,6 +4033,32 @@ function newTaskDate() {
 
 document.getElementById("new-task").addEventListener("click", () => openAddDialog(newTaskDate()));
 document.getElementById("go-to-today").addEventListener("click", () => showDate(toDateKey(new Date())));
+
+// Keyboard shortcuts (Olivia wanted Control, so a stray key never opens anything): Ctrl+N opens a
+// new task, Ctrl+/ jumps to search, Ctrl+T goes to today. They're ignored while typing in a box and
+// while a pop-up is open. Cmd+N and Cmd+T still do what the browser does on a Mac.
+function isTypingIn(element) {
+  return Boolean(element?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (!event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  if (isTypingIn(event.target) || document.querySelector("dialog[open]")) return;
+  if (document.body.classList.contains("signed-out")) return;
+  const key = event.key.toLowerCase();
+  if (key === "n") {
+    event.preventDefault();
+    if (mode !== "calendar") showMode("calendar");
+    openAddDialog(newTaskDate());
+  } else if (key === "/") {
+    event.preventDefault();
+    searchInput.focus();
+  } else if (key === "t") {
+    event.preventDefault();
+    if (mode !== "calendar") showMode("calendar");
+    showDate(toDateKey(new Date()));
+  }
+});
 function movePeriod(direction) {
   if (view === "month") showDate(addMonths(visibleDate, direction));
   else if (view === "agenda") showDate(addDays(visibleDate, direction * AGENDA_DAYS));
@@ -3596,6 +4481,7 @@ const importReminderRow = document.getElementById("import-reminder-row");
 const importReminderLevel = document.getElementById("import-reminders");
 const importFile = document.getElementById("import-file");
 const importSummary = document.getElementById("import-summary");
+const importWeights = document.getElementById("import-weights");
 const importPreview = document.getElementById("import-preview");
 const importList = document.getElementById("import-list");
 const importAll = document.getElementById("import-all");
@@ -3622,6 +4508,10 @@ let importSource = "calendar";
 let importEvents = [];
 // Tasks already in Due Next that this import also found; choosing a group moves them into it too.
 let importExisting = [];
+// From a syllabus: its grade breakdown, and the weights it gives this class's tasks already here
+// (only ones without a weight, so nothing typed by hand is changed), as [{ task, weight }].
+let importBreakdown = [];
+let importExistingWeights = [];
 const NEW_GROUP_CHOICE = "new";
 
 function showImportMode(mode) {
@@ -3709,8 +4599,11 @@ function existingTasksToUpdate() {
 function updateImportButton() {
   const count = importCheckboxes().filter((checkbox) => checkbox.checked).length;
   const updateCount = existingTasksToUpdate().length;
-  importSubmit.disabled = count === 0 && updateCount === 0;
+  const weightCount = importExistingWeights.length;
+  importSubmit.disabled = count === 0 && updateCount === 0 && weightCount === 0;
   if (count === 0 && updateCount > 0) importSubmit.textContent = updateCount === 1 ? "Update 1 task" : `Update ${updateCount} tasks`;
+  // Importing a syllabus again just to get its grade weights onto the tasks already here.
+  else if (count === 0 && weightCount > 0) importSubmit.textContent = `Set grade weights on ${weightCount} task${weightCount === 1 ? "" : "s"}`;
   else importSubmit.textContent = count === 1 ? "Add 1 task" : `Add ${count} tasks`;
   importAll.checked = count > 0 && count === importEvents.length;
 }
@@ -3752,6 +4645,9 @@ importGroup.addEventListener("change", () => {
 function clearImportPreview() {
   importEvents = [];
   importExisting = [];
+  importBreakdown = [];
+  importExistingWeights = [];
+  importWeights.hidden = true;
   importGroupRow.hidden = true;
   importReminderRow.hidden = true;
   importGroup.value = "";
@@ -3800,7 +4696,9 @@ function renderImportRow(event, index, todayKey) {
   const meta = document.createElement("span");
   meta.className = "import-row-meta";
   const when = formatDay(event.due, { weekday: "short", month: "short", day: "numeric" });
-  meta.textContent = [when, formatTime(event.time), event.course, alreadyHere ? "Already in Due Next" : ""].filter(Boolean).join(" · ");
+  meta.textContent = [event.weight ? `${event.weight}% of grade` : "", when, formatTime(event.time), event.course, alreadyHere ? "Already in Due Next" : ""]
+    .filter(Boolean)
+    .join(" · ");
   checkbox.setAttribute("aria-label", `Add ${event.name}, ${when}`);
   const reminder = document.createElement("span");
   reminder.className = "import-row-meta import-row-reminder";
@@ -3815,7 +4713,16 @@ function showImportPreview(found, newEvents, emptyText) {
   renderImportGroups();
   importGroupRow.hidden = found.length === 0;
   importReminderRow.hidden = found.length === 0;
-  importEvents = newEvents.sort((a, b) => a.due.localeCompare(b.due) || a.time.localeCompare(b.time));
+  // With grade weights from a syllabus, the most important come first; otherwise by date.
+  importEvents = newEvents.sort(
+    (a, b) => (b.weight ?? 0) - (a.weight ?? 0) || a.due.localeCompare(b.due) || a.time.localeCompare(b.time),
+  );
+  importWeights.hidden = importBreakdown.length === 0;
+  const existingText =
+    importExistingWeights.length > 0
+      ? ` Also sets weights on ${importExistingWeights.length} of this class's tasks already in Due Next.`
+      : "";
+  importWeights.textContent = `Grade weights from the syllabus: ${importBreakdown.map((part) => `${part.label} ${part.percent}%`).join(" · ")}. Listed most to least important.${existingText}`;
   const alreadyAdded = found.length - importEvents.length;
   const upcomingCount = importEvents.filter((event) => event.due >= todayKey && !findDuplicateTask(tasks, event)).length;
   const lookAlikes = importEvents.filter((event) => findDuplicateTask(tasks, event)).length;
@@ -3847,15 +4754,32 @@ function previewTextImport(text) {
   importExisting = tasks.filter((task) => foundKeys.has(`${task.due}|${task.name.toLowerCase()}`));
   importCourseRow.hidden = found.length === 0;
   importCourse.value = guessCourse(text);
+  const newEvents = newTextEvents(found, tasks);
+  importBreakdown = parseGradeBreakdown(text);
+  importExistingWeights = [];
+  if (importBreakdown.length > 0) {
+    // Split each category across everything of that kind for the class: what's new plus what's here.
+    const course = importCourse.value.trim().toLowerCase();
+    const classTasks = course ? tasks.filter((task) => task.course.trim().toLowerCase() === course) : [];
+    const weights = gradeWeights([...newEvents, ...classTasks], importBreakdown);
+    newEvents.forEach((event, index) => {
+      event.weight = weights[index];
+    });
+    importExistingWeights = classTasks
+      .map((task, index) => ({ task, weight: weights[newEvents.length + index] }))
+      .filter(({ task, weight }) => weight && !task.weight);
+  }
   showImportPreview(
     found,
-    newTextEvents(found, tasks),
+    newEvents,
     "No dates found. Dates need a month and day, like “Sep 15” or “9/15”. Try pasting just the schedule part.",
   );
 }
 
 function previewCalendarImport(events) {
   importSource = "calendar";
+  importBreakdown = [];
+  importExistingWeights = [];
   importCourseRow.hidden = true;
   const foundIds = new Set(events.map((event) => event.canvasId));
   importExisting = tasks.filter((task) => foundIds.has(task.canvasId));
@@ -3974,8 +4898,9 @@ importForm.addEventListener("submit", (event) => {
     const typedName = checkbox.closest(".import-row").querySelector(".import-row-name").value.trim();
     const name = (typedName || found.name).slice(0, 120);
     const reminders = importReminders(name, level);
-    return createTask({ name, course: importCourse.value, due: found.due, time: found.time, groupId, reminders });
+    return createTask({ name, course: importCourse.value, due: found.due, time: found.time, groupId, reminders, weight: found.weight });
   });
+  for (const { task, weight } of importExistingWeights) task.weight = weight;
   if (importSource === "calendar") settleImportedCanvasTasks(newTasks, now);
   else markPastAsDone(newTasks, now);
   tasks.push(...newTasks);
@@ -3988,8 +4913,10 @@ importForm.addEventListener("submit", (event) => {
   render();
   const added = newTasks.length === 1 ? "Added 1 task." : `Added ${newTasks.length} tasks.`;
   const updated = updates.length === 1 ? "Updated 1 already here." : `Updated ${updates.length} already here.`;
-  if (newTasks.length === 0) showToast(updated);
-  else showToast(updates.length > 0 ? `${added} ${updated}` : added);
+  const weighted = importExistingWeights.length;
+  const weightedText = weighted > 0 ? ` Set grade weights on ${weighted} already here.` : "";
+  if (newTasks.length === 0) showToast(updates.length > 0 ? `${updated}${weightedText}` : weightedText.trim());
+  else showToast(`${updates.length > 0 ? `${added} ${updated}` : added}${weightedText}`);
   const anyReminders = [...newTasks, ...updates].some((task) => hasReminders(task));
   if (anyReminders && notificationsSupported() && Notification.permission === "default") {
     Notification.requestPermission().then(render);
@@ -4698,7 +5625,74 @@ for (const row of settingsRows) {
 }
 
 // index.html applies the saved theme and background before the page draws; these switch them.
+// Dark mode: Match my computer, Off, On, or At night (between two times, 8 PM to 7 AM to start).
+const darkOptions = [...document.querySelectorAll("[data-dark-choice]")];
+const darkNightTimes = document.getElementById("dark-night-times");
+const darkFrom = document.getElementById("dark-from");
+const darkTo = document.getElementById("dark-to");
+
+function darkSetting() {
+  try {
+    return cleanDarkSetting(JSON.parse(localStorage.getItem(DARK_KEY) ?? "null"));
+  } catch {
+    return cleanDarkSetting(null);
+  }
+}
+
+function saveDarkSetting(changes) {
+  try {
+    localStorage.setItem(DARK_KEY, JSON.stringify(cleanDarkSetting({ ...darkSetting(), ...changes })));
+  } catch {
+    // It can't be remembered without storage.
+  }
+  applyDarkMode();
+  showChosenLook();
+}
+
+for (const option of darkOptions) option.addEventListener("click", () => saveDarkSetting({ mode: option.dataset.darkChoice }));
+darkFrom.addEventListener("change", () => saveDarkSetting({ from: darkFrom.value }));
+darkTo.addEventListener("change", () => saveDarkSetting({ to: darkTo.value }));
+// "At night" switches by itself when the time comes, even with Due Next open.
+setInterval(applyDarkMode, 60_000);
+
+const celebrateOptions = [...document.querySelectorAll("[data-celebrate-choice]")];
+for (const option of celebrateOptions) {
+  option.addEventListener("click", () => {
+    try {
+      localStorage.setItem(CELEBRATE_KEY, option.dataset.celebrateChoice);
+    } catch {
+      // It still changes for now; it just won't be remembered.
+    }
+    showChosenLook();
+    if (option.dataset.celebrateChoice === "on") {
+      const { left, top, width, height } = option.getBoundingClientRect();
+      celebrate({ clientX: left + width / 2, clientY: top + height / 2 }, { pieces: 14 });
+    }
+  });
+}
+
+const holidaysOptions = [...document.querySelectorAll("[data-holidays-choice]")];
+for (const option of holidaysOptions) {
+  option.addEventListener("click", () => {
+    try {
+      localStorage.setItem(HOLIDAYS_KEY, option.dataset.holidaysChoice);
+    } catch {
+      // It still changes for now; it just won't be remembered.
+    }
+    showChosenLook();
+    render();
+  });
+}
+
 function showChosenLook() {
+  for (const option of celebrateOptions) option.setAttribute("aria-pressed", String((option.dataset.celebrateChoice === "on") === celebrationsOn()));
+  const dark = darkSetting();
+  for (const option of darkOptions) option.setAttribute("aria-pressed", String(option.dataset.darkChoice === dark.mode));
+  darkNightTimes.hidden = dark.mode !== "night";
+  darkFrom.value = dark.from;
+  darkTo.value = dark.to;
+  const shown = holidaysShown();
+  for (const option of holidaysOptions) option.setAttribute("aria-pressed", String((option.dataset.holidaysChoice === "on") === shown));
   const { theme, background } = document.documentElement.dataset;
   for (const option of themeOptions) {
     option.setAttribute("aria-pressed", String(option.dataset.themeChoice === theme));
@@ -4765,6 +5759,7 @@ const GOOGLE_STATUS_TEXT = {
   suggest: "Connected on another computer. Connect here too to see your events on this one.",
   loading: "Connecting… Finish in the Google window that opened.",
   reconnect: "Connected, but Google needs a quick click to keep your events up to date.",
+  saved: "Showing your saved Google events. Click Update to get the latest.",
   error: "Couldn't load your Google Calendar. Due Next will try again in a few minutes.",
 };
 
@@ -4774,7 +5769,11 @@ function showGoogleSetting() {
     status === "connected" ? `✓ Connected${account ? ` as ${account}` : ""}. Your events are on the calendar.` : GOOGLE_STATUS_TEXT[status];
   settingsGoogleConnect.hidden = status === "connected";
   settingsGoogleConnect.disabled = status === "loading";
-  settingsGoogleConnect.textContent = ["off", "suggest", "loading"].includes(status) ? "Connect Google Calendar" : "Reconnect";
+  settingsGoogleConnect.textContent = ["off", "suggest", "loading"].includes(status)
+    ? "Connect Google Calendar"
+    : status === "saved"
+      ? "Update"
+      : "Reconnect";
   settingsGoogleDisconnect.hidden = status === "off";
   const hiddenCount = Object.values(googleChanges).filter((change) => change.hidden).length;
   settingsGoogleUnhide.hidden = hiddenCount === 0;
@@ -4849,14 +5848,15 @@ changePasswordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const fields = ["current-password", "new-password", "new-password-again"].map((id) => document.getElementById(id));
   const [current, next, again] = fields.map((field) => field.value);
-  const problem = passwordChangeError({ current, next, again });
+  const code = document.getElementById("change-password-code").value;
+  const problem = passwordChangeError({ current, next, again }) || (twoStepIsOn() ? twoStepCodeError(code) : "");
   changePasswordMessage.classList.remove("is-info");
   changePasswordMessage.textContent = problem;
   if (problem) return;
   changePasswordSubmit.disabled = true;
   changePasswordMessage.textContent = "Changing…";
   try {
-    await changePassword(current, next);
+    await changePassword(current, next, code);
     changePasswordForm.reset();
     changePasswordMessage.classList.add("is-info");
     changePasswordMessage.textContent = "Password changed ✓ Use the new one next time you sign in.";
@@ -4865,6 +5865,133 @@ changePasswordForm.addEventListener("submit", async (event) => {
     changePasswordMessage.textContent = wrongCurrent ? "That current password isn't right." : authErrorMessage(error.code);
   } finally {
     changePasswordSubmit.disabled = false;
+  }
+});
+
+// Settings → Account → Download a backup: everything saved to the account, as one file.
+document.getElementById("download-backup").addEventListener("click", () => {
+  const { name, text } = backupFile(localStorage);
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  showToast(`Backup downloaded: ${name}`);
+});
+
+// Settings → Account → Two-step sign-in: turning it on (password, then scan a QR code and type the
+// first code) or off (password and a code).
+const twoStepStatus = document.getElementById("two-step-status");
+const twoStepForm = document.getElementById("two-step-form");
+const twoStepPassword = document.getElementById("two-step-password");
+const twoStepOffCode = document.getElementById("two-step-off-code");
+const twoStepSubmit = document.getElementById("two-step-submit");
+const twoStepSetup = document.getElementById("two-step-setup");
+const twoStepCode = document.getElementById("two-step-code");
+const twoStepMessage = document.getElementById("two-step-message");
+const QR_LIBRARY = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+let twoStepSecret = null;
+
+function showTwoStepMessage(text, { isInfo = false } = {}) {
+  twoStepMessage.textContent = text;
+  twoStepMessage.classList.toggle("is-info", isInfo);
+}
+
+function showTwoStepSetting() {
+  const on = twoStepIsOn();
+  twoStepStatus.textContent = on
+    ? "✓ On. Signing in asks for your password and a 6-digit code from your authenticator app."
+    : "Off. Turn it on so signing in also needs a 6-digit code from an app on your phone, so a stolen password isn't enough.";
+  twoStepSubmit.textContent = on ? "Turn off" : "Turn on";
+  twoStepForm.hidden = false;
+  twoStepSetup.hidden = true;
+  twoStepSecret = null;
+  twoStepForm.reset();
+  twoStepSetup.reset();
+  // Changing your password, or turning two-step off, also asks for a code while it's on.
+  for (const field of document.querySelectorAll(".two-step-code-field")) field.hidden = !on;
+}
+
+function loadQrLibrary() {
+  if (window.qrcode) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = QR_LIBRARY;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("no-qr"));
+    document.head.append(script);
+  });
+}
+
+async function drawTwoStepQr(link) {
+  const holder = document.getElementById("two-step-qr");
+  holder.textContent = "";
+  try {
+    await loadQrLibrary();
+    const qr = window.qrcode(0, "M");
+    qr.addData(link);
+    qr.make();
+    holder.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  } catch {
+    holder.textContent = "Couldn't draw the QR code. Type the key below into the app instead.";
+  }
+}
+
+twoStepForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const on = twoStepIsOn();
+  const password = twoStepPassword.value;
+  const problem = !password ? "Type your password." : on ? twoStepCodeError(twoStepOffCode.value) : "";
+  showTwoStepMessage(problem);
+  if (problem) return;
+  twoStepSubmit.disabled = true;
+  showTwoStepMessage(on ? "Turning off…" : "Getting things ready…", { isInfo: true });
+  try {
+    if (on) {
+      await turnOffTwoStep(password, twoStepOffCode.value);
+      showTwoStepSetting();
+      showTwoStepMessage("Two-step sign-in is off. Signing in needs only your password now.", { isInfo: true });
+      return;
+    }
+    const started = await startTwoStep(password);
+    if (started.verifyEmail) {
+      showTwoStepMessage(
+        `First, verify your email: a link is on its way to ${started.verifyEmail} (check spam too). Click it, then come back and press Turn on again.`,
+        { isInfo: true },
+      );
+      return;
+    }
+    twoStepSecret = started.secret;
+    document.getElementById("two-step-key").textContent = started.key;
+    twoStepForm.hidden = true;
+    twoStepSetup.hidden = false;
+    showTwoStepMessage("");
+    await drawTwoStepQr(started.link);
+    twoStepCode.focus();
+  } catch (error) {
+    const wrongPassword = error.code === "auth/invalid-credential" || error.code === "auth/wrong-password";
+    showTwoStepMessage(wrongPassword ? "That password isn't right." : authErrorMessage(error.code));
+  } finally {
+    twoStepSubmit.disabled = false;
+  }
+});
+
+twoStepSetup.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const problem = twoStepCodeError(twoStepCode.value);
+  showTwoStepMessage(problem);
+  if (problem || !twoStepSecret) return;
+  const confirm = document.getElementById("two-step-confirm");
+  confirm.disabled = true;
+  showTwoStepMessage("Checking the code…", { isInfo: true });
+  try {
+    await finishTwoStep(twoStepSecret, twoStepCode.value);
+    showTwoStepSetting();
+    showTwoStepMessage("Two-step sign-in is on ✓ Next time you sign in, have your authenticator app ready.", { isInfo: true });
+  } catch (error) {
+    showTwoStepMessage(authErrorMessage(error.code));
+  } finally {
+    confirm.disabled = false;
   }
 });
 
@@ -4883,6 +6010,8 @@ document.getElementById("open-settings").addEventListener("click", () => {
   document.getElementById("settings-account-name").textContent = currentAccountName();
   document.getElementById("settings-account-email").textContent = currentAccountEmail();
   settingsAccountMessage.textContent = "";
+  showTwoStepSetting();
+  showTwoStepMessage("");
   showChosenLook();
   settingsQuickTimes.clearMessage();
   settingsQuickTimes.render();
@@ -4929,6 +6058,73 @@ loadViewSettings();
 startGoogleCalendar(render);
 render();
 
+// The first time the app opens on a Sunday, a gentle look at the week ahead. It replaces the
+// morning card that day, so there's only ever one.
+const SUNDAY_SHOWN_KEY = "due-sunday-shown";
+const SUNDAY_LIST_LIMIT = 6;
+
+function showSundayPlan() {
+  const now = new Date();
+  // Opening the app with ?preview=sunday shows the card any day, to check how it looks.
+  const preview = new URLSearchParams(location.search).get("preview") === "sunday";
+  if (preview) now.setDate(now.getDate() - now.getDay());
+  let lastShown = "";
+  try {
+    lastShown = preview ? "" : (localStorage.getItem(SUNDAY_SHOWN_KEY) ?? "");
+  } catch {
+    // Without storage it may show again on the next open, which is harmless.
+  }
+  const plan = sundayPlan(tasks, now, lastShown);
+  if (!plan) return false;
+  const weekday = (dateKey) => formatDay(dateKey, { weekday: "short" });
+  const count = plan.due.length;
+  document.getElementById("sunday-summary").textContent =
+    count === 0 ? "Nothing due this week 🌷" : `${count} due this week${plan.busiest ? ` · busiest ${weekday(plan.busiest.date)} (${plan.busiest.count})` : ""}`;
+  const shown = plan.due.slice(0, SUNDAY_LIST_LIMIT);
+  document.getElementById("sunday-list").replaceChildren(
+    ...shown.map((task) => {
+      const item = document.createElement("li");
+      const day = document.createElement("span");
+      day.className = "sunday-day";
+      day.textContent = weekday(task.due);
+      item.append(day, ` ${task.name}${task.course ? ` · ${task.course}` : ""}`);
+      return item;
+    }),
+    ...(count > shown.length ? [Object.assign(document.createElement("li"), { textContent: `+${count - shown.length} more` })] : []),
+  );
+  const extras = [];
+  if (plan.big.length > 0) extras.push(`Start early on ${plan.big.map((task) => task.name).join(", ")}.`);
+  if (plan.steps > 0) extras.push(`${plan.steps} step${plan.steps === 1 ? "" : "s"} planned.`);
+  const extra = document.getElementById("sunday-extra");
+  extra.textContent = extras.join(" ");
+  extra.hidden = extras.length === 0;
+  const card = document.getElementById("sunday-card");
+  card.hidden = false;
+  document.getElementById("sunday-dismiss").addEventListener("click", () => {
+    card.hidden = true;
+  });
+  // Opens the Semester view at this week's card (its busiest days and tips), highlighted for a moment.
+  document.getElementById("sunday-see-week").addEventListener("click", () => {
+    card.hidden = true;
+    showMode("semester");
+    const weekCard = semesterContainer.querySelector(`[data-week-start="${startOfWeek(toDateKey(now))}"]`);
+    if (!weekCard) return;
+    weekCard.scrollIntoView({ block: "center", behavior: "smooth" });
+    weekCard.classList.add("search-found");
+    setTimeout(() => weekCard.classList.remove("search-found"), SEARCH_HIGHLIGHT_MS);
+  });
+  if (!preview) {
+    try {
+      localStorage.setItem(SUNDAY_SHOWN_KEY, toDateKey(now));
+      // It stands in for today's morning card too.
+      localStorage.setItem(MORNING_SHOWN_KEY, toDateKey(now));
+    } catch {
+      // See above.
+    }
+  }
+  return true;
+}
+
 // The first time the app opens each morning, show a quick summary of today.
 const MORNING_SHOWN_KEY = "due-morning-shown";
 function showMorningSummary() {
@@ -4957,8 +6153,6 @@ function showMorningSummary() {
     // See above.
   }
 }
-showMorningSummary();
-
 // Ask about missed tasks each time the app opens. "Later" just closes it until next time.
 const missedOnOpen = groupTasks(tasks, toDateKey(new Date()), toTimeKey(new Date())).overdue;
 if (missedOnOpen.length > 0) {
@@ -4967,6 +6161,37 @@ if (missedOnOpen.length > 0) {
     { single: false },
   );
 }
+
+// The Sunday card (or the morning card) waits until the missed-tasks pop-up is closed, because the
+// pop-up blocks clicks on everything behind it, including the card's buttons.
+function showOpeningCard() {
+  if (!showSundayPlan()) showMorningSummary();
+  // A ?preview=sunday or ?preview=morning link shows its card once; reloading goes back to normal.
+  const params = new URLSearchParams(location.search);
+  if (params.has("preview")) {
+    params.delete("preview");
+    const rest = params.toString();
+    history.replaceState(null, "", `${location.pathname}${rest ? `?${rest}` : ""}${location.hash}`);
+  }
+}
+if (missedDialog.open) missedDialog.addEventListener("close", showOpeningCard, { once: true });
+else showOpeningCard();
 // Re-render each minute so tasks move to Overdue when their time passes.
 setInterval(render, 60_000);
 setInterval(checkReminders, 20_000);
+
+// Back to the top: a round button in the bottom left corner once the top bar (Today, the arrows,
+// + New) has scrolled out of view.
+const backToTop = document.getElementById("back-to-top");
+const topBar = document.querySelector(".top-bar");
+
+function updateBackToTop() {
+  backToTop.hidden = topBar.getBoundingClientRect().bottom > 0;
+}
+
+window.addEventListener("scroll", updateBackToTop, { passive: true });
+backToTop.addEventListener("click", () => {
+  const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
+});
+updateBackToTop();

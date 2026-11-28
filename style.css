@@ -95,94 +95,94 @@
   --none-edge: #a1a1a6;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root,
-  [data-theme="pastel"] {
-    --bg: #1c1820;
-    --surface: #241f29;
-    --subtle: #2d2733;
-    --text: #f3edf5;
-    --muted: #a397ab;
-    --line: #3a3140;
-    --accent: #f2a7c0;
-    --accent-text: #1c1820;
-    --overdue: #ff8fa3;
-    --today-tint: #2b2131;
-    --on-edge: #1c1820;
+/* Dark colors for each theme, used when dark mode is on: always, at night, or when the computer is in
+   dark mode (Settings → Look → Dark mode). */
+html[data-dark="on"]:not([data-theme]),
+html[data-dark="on"][data-theme="pastel"] {
+  --bg: #1c1820;
+  --surface: #241f29;
+  --subtle: #2d2733;
+  --text: #f3edf5;
+  --muted: #a397ab;
+  --line: #3a3140;
+  --accent: #f2a7c0;
+  --accent-text: #1c1820;
+  --overdue: #ff8fa3;
+  --today-tint: #2b2131;
+  --on-edge: #1c1820;
 
-    --c0-fill: #3a2430;
-    --c0-edge: #f2a7c0;
-    --c1-fill: #1f3329;
-    --c1-edge: #8fd9b2;
-    --c2-fill: #3a2a22;
-    --c2-edge: #f5b892;
-    --c3-fill: #2c2540;
-    --c3-edge: #c3a8f0;
-    --c4-fill: #1f2b3a;
-    --c4-edge: #9cc6f0;
-    --c5-fill: #36311d;
-    --c5-edge: #ecd47a;
-    --none-fill: #2d2733;
-    --none-edge: #8a7f92;
-  }
+  --c0-fill: #3a2430;
+  --c0-edge: #f2a7c0;
+  --c1-fill: #1f3329;
+  --c1-edge: #8fd9b2;
+  --c2-fill: #3a2a22;
+  --c2-edge: #f5b892;
+  --c3-fill: #2c2540;
+  --c3-edge: #c3a8f0;
+  --c4-fill: #1f2b3a;
+  --c4-edge: #9cc6f0;
+  --c5-fill: #36311d;
+  --c5-edge: #ecd47a;
+  --none-fill: #2d2733;
+  --none-edge: #8a7f92;
+}
 
-  [data-theme="cozy"] {
-    --bg: #1f1b16;
-    --surface: #28231d;
-    --subtle: #312a23;
-    --text: #f4ece1;
-    --muted: #a99b8a;
-    --line: #3b3229;
-    --accent: #f0a988;
-    --accent-text: #1f1b16;
-    --overdue: #ff8a7a;
-    --today-tint: #2e261d;
-    --on-edge: #1f1b16;
+html[data-dark="on"][data-theme="cozy"] {
+  --bg: #1f1b16;
+  --surface: #28231d;
+  --subtle: #312a23;
+  --text: #f4ece1;
+  --muted: #a99b8a;
+  --line: #3b3229;
+  --accent: #f0a988;
+  --accent-text: #1f1b16;
+  --overdue: #ff8a7a;
+  --today-tint: #2e261d;
+  --on-edge: #1f1b16;
 
-    --c0-fill: #3a281d;
-    --c0-edge: #f2ad88;
-    --c1-fill: #26301f;
-    --c1-edge: #a8c796;
-    --c2-fill: #363017;
-    --c2-edge: #e8c862;
-    --c3-fill: #382625;
-    --c3-edge: #e0a8a2;
-    --c4-fill: #222c33;
-    --c4-edge: #a3bfd4;
-    --c5-fill: #33281e;
-    --c5-edge: #d0a47e;
-    --none-fill: #312a23;
-    --none-edge: #8a7d6e;
-  }
+  --c0-fill: #3a281d;
+  --c0-edge: #f2ad88;
+  --c1-fill: #26301f;
+  --c1-edge: #a8c796;
+  --c2-fill: #363017;
+  --c2-edge: #e8c862;
+  --c3-fill: #382625;
+  --c3-edge: #e0a8a2;
+  --c4-fill: #222c33;
+  --c4-edge: #a3bfd4;
+  --c5-fill: #33281e;
+  --c5-edge: #d0a47e;
+  --none-fill: #312a23;
+  --none-edge: #8a7d6e;
+}
 
-  [data-theme="classic"] {
-    --bg: #161618;
-    --surface: #1f1f22;
-    --subtle: #26262a;
-    --text: #f2f2f4;
-    --muted: #8e8e95;
-    --line: #2e2e33;
-    --accent: #7aa2f7;
-    --accent-text: #161618;
-    --overdue: #ff6b61;
-    --today-tint: #1c2130;
-    --on-edge: #161618;
+html[data-dark="on"][data-theme="classic"] {
+  --bg: #161618;
+  --surface: #1f1f22;
+  --subtle: #26262a;
+  --text: #f2f2f4;
+  --muted: #8e8e95;
+  --line: #2e2e33;
+  --accent: #7aa2f7;
+  --accent-text: #161618;
+  --overdue: #ff6b61;
+  --today-tint: #1c2130;
+  --on-edge: #161618;
 
-    --c0-fill: #1e2a40;
-    --c0-edge: #7aa2f7;
-    --c1-fill: #1c2e24;
-    --c1-edge: #6fcf8f;
-    --c2-fill: #33261b;
-    --c2-edge: #f0a466;
-    --c3-fill: #2a2238;
-    --c3-edge: #b794f4;
-    --c4-fill: #351f26;
-    --c4-edge: #f08aa0;
-    --c5-fill: #1a3030;
-    --c5-edge: #5fd0d0;
-    --none-fill: #26262a;
-    --none-edge: #6e6e75;
-  }
+  --c0-fill: #1e2a40;
+  --c0-edge: #7aa2f7;
+  --c1-fill: #1c2e24;
+  --c1-edge: #6fcf8f;
+  --c2-fill: #33261b;
+  --c2-edge: #f0a466;
+  --c3-fill: #2a2238;
+  --c3-edge: #b794f4;
+  --c4-fill: #351f26;
+  --c4-edge: #f08aa0;
+  --c5-fill: #1a3030;
+  --c5-edge: #5fd0d0;
+  --none-fill: #26262a;
+  --none-edge: #6e6e75;
 }
 
 * {
@@ -1580,10 +1580,38 @@ select {
 .group-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: 4px 6px;
   margin-bottom: 12px;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   color: var(--muted);
+}
+
+.group-legend {
+  align-items: center;
+}
+
+.filter-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.filter-choice:hover {
+  background: var(--subtle);
+}
+
+.filter-choice[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--subtle);
+  border-color: var(--line);
+  font-weight: 600;
 }
 
 .group-legend li,
@@ -2594,10 +2622,13 @@ input.import-row-name:focus-visible {
 
 /* Settings: a sidebar that slides out from the left, with flat rows instead of cards. */
 
+/* The three lines are drawn, not a ☰ character, so they sit exactly in the middle in every font. */
 .menu-button {
+  display: grid;
+  place-items: center;
   width: 46px;
   height: 46px;
-  font-size: 1.7rem;
+  padding: 0;
   color: var(--accent);
   background: var(--today-tint);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
@@ -2607,6 +2638,19 @@ input.import-row-name:focus-visible {
 .menu-button:hover {
   color: var(--accent-text);
   background: var(--accent);
+}
+
+.menu-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-icon span {
+  width: 20px;
+  height: 2.5px;
+  background: currentColor;
+  border-radius: 2px;
 }
 
 .settings-panel {
@@ -2832,26 +2876,29 @@ html[data-background="gradient"] body,
   );
 }
 
+/* Dots and grid are kept light and spread out, so they're a texture, not something to read. */
 html[data-background="dots"] body,
 .background-preview[data-background="dots"] {
-  background-image: radial-gradient(color-mix(in srgb, var(--accent) 22%, transparent) 1.5px, transparent 2px);
-  background-size: 22px 22px;
+  background-image: radial-gradient(color-mix(in srgb, var(--accent) 13%, transparent) 1.2px, transparent 1.7px);
+  background-size: 30px 30px;
 }
 
 .background-preview[data-background="dots"] {
   background-size: 8px 8px;
 }
 
-html[data-background="grid"] body,
-.background-preview[data-background="grid"] {
+/* Soft glow: two big, blurry patches of the theme's colors in opposite corners. No pattern at all. */
+html[data-background="glow"] body,
+.background-preview[data-background="glow"] {
   background-image:
-    linear-gradient(color-mix(in srgb, var(--accent) 10%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent) 1px, transparent 1px);
-  background-size: 28px 28px;
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--c0-edge) 24%, transparent), transparent 45%),
+    radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--c4-edge) 24%, transparent), transparent 50%);
 }
 
-.background-preview[data-background="grid"] {
-  background-size: 8px 8px;
+/* With dots or soft glow, the calendar and the boxes are solid, so the background only shows in the
+   space around them and never runs behind the calendar's lines or a task. */
+html:is([data-background="dots"], [data-background="glow"]) :is(.today-panel, .week-grid, .month, .day-view, .semester-week) {
+  background-color: var(--surface);
 }
 
 html[data-background] body {
@@ -3177,9 +3224,10 @@ body:not(.signed-out) .auth-screen {
 }
 
 /* Each day gets at least 120px, so overlapping events stay readable; narrower windows scroll sideways. */
+/* Narrow enough that all 7 days fit in a half-screen window; only very small windows scroll sideways. */
 .week-inner {
   position: relative;
-  min-width: calc(56px + 7 * 120px);
+  min-width: calc(56px + 7 * 72px);
 }
 
 .week-head,
@@ -3224,6 +3272,19 @@ body:not(.signed-out) .auth-screen {
 
 .week-head + .week-row {
   border-top: none;
+}
+
+/* The day names and the All day row stay at the top of the week while the hours scroll. */
+.week-top {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.week-top .week-head {
+  position: static;
 }
 
 .week-label {
@@ -3706,7 +3767,7 @@ body:not(.signed-out) .auth-screen {
 }
 
 /* On the Semester side the calendar and its controls step aside. */
-body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #period-label, #view-select, #new-task, #overdue, #group-legend, .workspace, #hint, #google-banner) {
+body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #period-label, #view-select, #new-task, #overdue, .workspace, #hint, #google-banner) {
   display: none !important;
 }
 
@@ -3776,7 +3837,41 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
     "dates label"
     "dates days"
     "dates heaviest"
-    "dates advice";
+    "dates extra"
+    "dates tasks"
+    "dates advice"
+    "dates ahead";
+}
+
+.get-ahead {
+  grid-area: ahead;
+  justify-self: start;
+  margin-top: 6px;
+}
+
+/* What's due that week, listed on the card. */
+.semester-tasks {
+  grid-area: tasks;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px 0 2px;
+  font-size: 0.85rem;
+}
+
+.semester-task.big {
+  font-weight: 700;
+}
+
+.semester-task.more {
+  color: var(--muted);
+}
+
+.semester-task-day {
+  display: inline-block;
+  min-width: 2.8em;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .semester-days {
@@ -3828,7 +3923,7 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 
 @media (max-width: 560px) {
   .semester-week {
-    grid-template-areas: "dates" "bar" "label" "days" "heaviest" "advice";
+    grid-template-areas: "dates" "bar" "label" "days" "heaviest" "extra" "tasks" "advice" "ahead";
   }
 }
 
@@ -3898,4 +3993,490 @@ body[data-mode="semester"] :is(#go-to-today, #previous-period, #next-period, #pe
 
 .chat-suggestion:hover {
   border-color: var(--accent);
+}
+
+/* The quiet Update Google button in the top bar; the age turns the accent color after a day. */
+.google-update-age {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.google-update.stale,
+.google-update.stale .google-update-age {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Settings → Account → Two-step sign-in: the QR code to scan, and the key to type in by hand. */
+.two-step-qr {
+  width: 180px;
+  height: 180px;
+  padding: 4px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.two-step-qr svg {
+  width: 100%;
+  height: 100%;
+}
+
+.two-step-key {
+  word-break: break-all;
+  user-select: all;
+}
+
+.two-step-code-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* "Remember me on this computer" under the password on the sign-in card. */
+.remember-me {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+/* Steps of a big task: rows in the task form, and their chips on the calendar. */
+.step-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.step-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.step-row.done input[type="text"] {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.step-remove {
+  width: 32px;
+  height: 32px;
+}
+
+.chip-steps {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.suggest-steps {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+/* Settings → Account → Download a backup. */
+.backup {
+  margin: 16px 0;
+}
+
+/* Search: a search box in the top-right corner, with matches dropping down under it; picking one
+   highlights it on the calendar for a moment. The other buttons sit on the line below. */
+.search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.top-bar .top-right {
+  flex-basis: 100%;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.search-bar input[type="search"] {
+  width: 240px;
+  height: 36px;
+  padding: 0 14px 0 34px;
+  box-sizing: border-box;
+  font: inherit;
+  background: var(--subtle);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.search-bar input[type="search"]:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.search-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: min(420px, calc(100vw - 32px));
+  padding: 10px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.search-panel .step-help:empty {
+  display: none;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 55vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+  background: var(--subtle);
+}
+
+.search-result-name {
+  font-weight: 600;
+}
+
+.search-result-detail {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.search-found {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  animation: search-found-pulse 0.6s ease-in-out 3;
+}
+
+@keyframes search-found-pulse {
+  50% {
+    outline-offset: 5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-found {
+    animation: none;
+  }
+}
+
+/* Notes and links on a task: the box in the form, its clickable links, and the 🔗 on the calendar. */
+.task-notes {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+}
+
+.notes-links {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.chip-link {
+  flex-shrink: 0;
+  padding: 0 2px;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+/* The Sunday card: the week ahead, in the same spot and style as the morning card. */
+.sunday-card {
+  align-items: flex-start;
+}
+
+.sunday-body {
+  min-width: 0;
+}
+
+.sunday-list {
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+  list-style: none;
+}
+
+.sunday-day {
+  display: inline-block;
+  min-width: 2.6em;
+  font-weight: 600;
+}
+
+.sunday-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ☆ pins a task to the top of Today. On the small week and month chips it shows on hover, or
+   always once pinned, so the grid stays calm. */
+.chip-star {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 2px;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+
+.chip-star[aria-pressed="true"] {
+  color: #e0a100;
+}
+
+.week-cell .chip-star,
+.week-task .chip-star,
+.month-tasks .chip-star {
+  display: none;
+}
+
+.week-cell .chip:hover .chip-star,
+.week-task:hover .chip-star,
+.month-tasks .chip:hover .chip-star,
+.chip.pinned .chip-star {
+  display: inline;
+}
+
+/* Holidays: a soft all-day bar at the top of the day, not clickable. */
+.google-event.holiday {
+  --event-color: #e0a100;
+  font-weight: 600;
+  background: color-mix(in srgb, #ffd54f 22%, var(--surface));
+  cursor: default;
+}
+
+/* Settings → Look → Dark mode → At night: the two times. */
+.dark-night-times {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 0.9rem;
+}
+
+/* Finals countdown at the top of the Semester view. */
+.finals-countdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.finals-text {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.finals-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Confetti: tiny pieces drawn over everything, gone in about a second, never catching clicks. */
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+/* Dragging in Month: a small label follows the pointer, and the day under it is highlighted. */
+.month-day .chip,
+.month-day .due-event {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.month-day.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.month-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent-text);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 6px;
+  transform: translate(8px, 8px);
+}
+
+/* Today, ‹, ›, and the date stay on one row together. */
+.period-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Grade weight: the Worth box in the task form, and the small "25%" on a task. */
+.weight-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.weight-input {
+  width: 64px;
+  text-align: center;
+}
+
+.weight-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.chip-weight {
+  align-self: flex-start;
+  padding: 0 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+}
+
+/* Import: the grade breakdown found in a syllabus. */
+.import-weights {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--subtle);
+  border-radius: 10px;
+}
+
+/* Semester: event time beyond a usual week. */
+.semester-extra-events {
+  grid-area: extra;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Back to the top: bottom left, across from the chat button, only once the page is scrolled. */
+.back-to-top {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 20;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.12);
+}
+
+.back-to-top:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The view menu (Day, Week, Month, Agenda) sits right above the calendar. */
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* The eye inside a password box, to show or hide what's typed. */
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 42px;
+}
+
+.password-eye {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.password-eye:hover,
+.password-eye[aria-pressed="true"] {
+  color: var(--accent);
 }

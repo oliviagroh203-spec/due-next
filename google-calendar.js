@@ -1,7 +1,8 @@
 // Shows your Google Calendar events on Due Next's calendar. Due Next asks Google only for read-only
-// access, so it can never add, change, or delete anything in your Google Calendar. Events are fetched
-// fresh from Google and never saved to your Due Next account.
-import { addDays, GOOGLE_WANTED_KEY, googleEventDays } from "./tasks.js";
+// access, so it can never add, change, or delete anything in your Google Calendar. The last copy is
+// saved to your account (name, day, time, and color only), so events stay on the calendar after
+// Google's hour-long pass runs out; the Update button gets a fresh copy.
+import { addDays, GOOGLE_SAVED_KEY, GOOGLE_WANTED_KEY, googleEventDays, toDateKey } from "./tasks.js";
 
 // Google's ID for Due Next's sign-in. Like the Firebase settings, it isn't secret: it only says which
 // app is asking, and Google only lets it be used from Due Next's own web addresses.
@@ -17,6 +18,9 @@ const TOKEN_KEY = "due-google-token";
 const REFRESH_MS = 5 * 60 * 1000;
 // Fetches a little past what's on screen, so moving a week or two doesn't wait on Google.
 const EXTRA_DAYS = 14;
+// Each update also covers the last month and the next six, so the saved copy fills the semester.
+const SAVED_DAYS_BEFORE = 31;
+const SAVED_DAYS_AFTER = 183;
 
 let tokenClient = null;
 let token = null;
@@ -25,6 +29,7 @@ let loadedRange = null;
 let wantedRange = null;
 let status = "off";
 let account = "";
+let updatedAt = 0;
 let fetching = false;
 let keepingCurrent = false;
 let notifyChange = () => {};
@@ -42,10 +47,33 @@ function setStatus(next) {
   notifyChange();
 }
 
-// "off" (not connected), "suggest" (connected on another computer, not this one yet), "loading",
-// "connected", "reconnect" (Google needs a click), or "error".
+// "off" (not connected), "suggest" (connected on another computer, nothing saved yet), "loading",
+// "connected", "saved" (showing the saved copy; Update gets a fresh one), "reconnect" (Google needs
+// a click and nothing is saved), or "error". `updatedAt` is when the events were last fetched.
 export function googleCalendarStatus() {
-  return { status, account };
+  return { status, account, updatedAt };
+}
+
+// Without a fresh pass, show the saved copy if there is one.
+function waitingStatus() {
+  return updatedAt ? "saved" : "reconnect";
+}
+
+function saveCopy() {
+  const copy = { updatedAt, start: loadedRange.start, end: loadedRange.end, entries };
+  try {
+    localStorage.setItem(GOOGLE_SAVED_KEY, JSON.stringify(copy));
+  } catch {
+    // Too big or storage is off: the events still show until Due Next is closed.
+  }
+}
+
+function loadCopy() {
+  const copy = readJson(localStorage, GOOGLE_SAVED_KEY);
+  if (!copy || !Array.isArray(copy.entries) || !copy.start || !copy.end) return;
+  entries = copy.entries;
+  loadedRange = { start: copy.start, end: copy.end };
+  updatedAt = Number(copy.updatedAt) || 0;
 }
 
 export function googleCalendarEntries() {
@@ -105,11 +133,15 @@ function dateKeyToIso(dateKey) {
 async function refresh() {
   if (!wantedRange || status === "off" || fetching) return;
   if (!hasFreshToken()) {
-    setStatus("reconnect");
+    // Only redraw when this changes, since every redraw asks for the dates on screen again.
+    if (status !== waitingStatus()) setStatus(waitingStatus());
     return;
   }
   fetching = true;
-  const range = { start: addDays(wantedRange.start, -EXTRA_DAYS), end: addDays(wantedRange.end, EXTRA_DAYS) };
+  const today = toDateKey(new Date());
+  const earliest = [addDays(wantedRange.start, -EXTRA_DAYS), addDays(today, -SAVED_DAYS_BEFORE)].sort()[0];
+  const latest = [addDays(wantedRange.end, EXTRA_DAYS), addDays(today, SAVED_DAYS_AFTER)].sort().at(-1);
+  const range = { start: earliest, end: latest };
   try {
     const calendars = (await googleGet("/users/me/calendarList")).items.filter((calendar) => calendar.selected);
     const lists = await Promise.all(
@@ -126,6 +158,8 @@ async function refresh() {
     );
     entries = lists.flat();
     loadedRange = range;
+    updatedAt = Date.now();
+    saveCopy();
     account = calendars.find((calendar) => calendar.primary)?.id ?? account;
     localStorage.setItem(CONNECTED_KEY, JSON.stringify({ account }));
     // Only written when it changes, since every write is also saved to the account.
@@ -133,7 +167,7 @@ async function refresh() {
     if (localStorage.getItem(GOOGLE_WANTED_KEY) !== wanted) localStorage.setItem(GOOGLE_WANTED_KEY, wanted);
     setStatus("connected");
   } catch (error) {
-    setStatus(error.message === "expired" ? "reconnect" : "error");
+    setStatus(error.message === "expired" ? waitingStatus() : "error");
   } finally {
     fetching = false;
   }
@@ -152,10 +186,10 @@ function keepCurrent() {
 // Tells this module which dates are on screen; loads them if they haven't been loaded yet.
 export function showGoogleRange(start, end) {
   wantedRange = { start, end };
-  if (status === "connected" && (!loadedRange || start < loadedRange.start || end > loadedRange.end)) refresh();
+  if ((status === "connected" || status === "saved") && (!loadedRange || start < loadedRange.start || end > loadedRange.end)) refresh();
 }
 
-// Connecting the first time asks for permission; reconnecting just gets a new pass from Google.
+// Connecting the first time asks for permission; updating just gets a new pass from Google.
 export async function connectGoogleCalendar() {
   const before = status;
   const firstTime = before === "off";
@@ -170,7 +204,7 @@ export async function connectGoogleCalendar() {
     keepCurrent();
     await refresh();
   } catch {
-    setStatus(before === "suggest" ? "suggest" : firstTime ? "off" : "reconnect");
+    setStatus(before === "suggest" ? "suggest" : firstTime ? "off" : waitingStatus());
     throw new Error(firstTime ? "Google Calendar wasn't connected." : "Couldn't reconnect to Google Calendar.");
   }
 }
@@ -181,8 +215,10 @@ export function disconnectGoogleCalendar() {
   entries = [];
   loadedRange = null;
   account = "";
+  updatedAt = 0;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(CONNECTED_KEY);
+  localStorage.removeItem(GOOGLE_SAVED_KEY);
   // Disconnecting here also stops the other computers from offering to connect.
   localStorage.removeItem(GOOGLE_WANTED_KEY);
   setStatus("off");
@@ -191,12 +227,14 @@ export function disconnectGoogleCalendar() {
 // Picks up where this browser left off, and keeps the events current while Due Next is open.
 export function startGoogleCalendar(onChange) {
   notifyChange = onChange;
+  loadCopy();
   const saved = readJson(localStorage, CONNECTED_KEY);
   if (!saved) {
     const wanted = readJson(localStorage, GOOGLE_WANTED_KEY);
     if (wanted) {
       account = wanted.account ?? "";
-      status = "suggest";
+      // Events saved from another computer show right away; Update gets fresh ones here.
+      status = updatedAt ? "saved" : "suggest";
     }
     return;
   }
@@ -205,6 +243,6 @@ export function startGoogleCalendar(onChange) {
   if (localStorage.getItem(GOOGLE_WANTED_KEY) === null) localStorage.setItem(GOOGLE_WANTED_KEY, JSON.stringify({ account }));
   const savedToken = readJson(localStorage, TOKEN_KEY);
   if (savedToken?.value && savedToken.expiresAt > Date.now()) token = savedToken;
-  status = hasFreshToken() ? "connected" : "reconnect";
+  status = hasFreshToken() ? "connected" : waitingStatus();
   keepCurrent();
 }
